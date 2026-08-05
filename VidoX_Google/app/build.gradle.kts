@@ -26,11 +26,28 @@ android {
         }
     }
 
+    signingConfigs {
+        // Optional release signing via env (local or CI).
+        val storePath = System.getenv("VIDOX_STORE_FILE")
+        if (!storePath.isNullOrBlank()) {
+            create("release") {
+                storeFile = file(storePath)
+                storePassword = System.getenv("VIDOX_STORE_PASSWORD")
+                keyAlias = System.getenv("VIDOX_KEY_ALIAS")
+                keyPassword = System.getenv("VIDOX_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             optimization {
                 enable = false
             }
+            // Prefer release keystore when configured; otherwise debug so assembleRelease
+            // still yields an installable APK for local/CI smoke builds.
+            signingConfig = signingConfigs.findByName("release")
+                ?: signingConfigs.getByName("debug")
         }
     }
 

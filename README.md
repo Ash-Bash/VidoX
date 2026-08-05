@@ -10,7 +10,9 @@ Apple (SwiftUI) and Android (Kotlin + Compose) live in this monorepo.
 VidoXProject/                 ← git root (run git commands here)
 ├── VidoX_Apple/              ← Xcode / SwiftUI (iPhone, iPad, Mac, visionOS)
 ├── VidoX_Google/             ← Android Studio / Compose (phone, tablet, ChromeOS)
+├── .github/workflows/        ← CI (Android release APK on tags)
 ├── LICENSE                   ← MIT
+├── RELEASE.md                ← how to ship binaries on GitHub Releases
 ├── .gitignore
 ├── .gitattributes
 └── README.md
@@ -43,6 +45,10 @@ VidoXProject/                 ← git root (run git commands here)
 |--------|-----|------|
 | `VidoX_Apple/` | Xcode | `VidoX_Apple/VidoXProject.xcodeproj` |
 | `VidoX_Google/` | Android Studio | the `VidoX_Google` folder |
+
+## Releases
+
+See **[RELEASE.md](RELEASE.md)** for cutting GitHub Releases (signed Android APK via Actions or Studio; Apple IPA / notarized Mac zip from Xcode).
 
 ## License
 
