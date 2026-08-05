@@ -37,14 +37,12 @@ struct SettingsView: View {
 
     private var headerCard: some View {
         HStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.accentColor.gradient)
-                    .frame(width: 56, height: 56)
-                Image(systemName: "arrow.down.circle.fill")
-                    .font(.title)
-                    .foregroundStyle(.white)
-            }
+            Image("AppIconDisplay")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 56, height: 56)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("VidoX")
@@ -74,8 +72,8 @@ struct SettingsView: View {
             if missingFileCount > 0 {
                 Text(
                     missingFileCount == 1
-                        ? "1 library item has no file on disk. Delete it or download again."
-                        : "\(missingFileCount) library items have no file on disk. Delete them or download again."
+                        ? "1 library item has no file on disk. Open it and tap Redownload, or delete it."
+                        : "\(missingFileCount) library items have no file on disk. Open each and tap Redownload, or delete them."
                 )
                     .font(.caption)
                     .foregroundStyle(.orange)

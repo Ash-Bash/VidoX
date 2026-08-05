@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -50,7 +51,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.ashbash.vidoxproject.VidoXApp
+import com.ashbash.vidoxproject.services.download.VideoRedownloader
 import com.ashbash.vidoxproject.services.export.VideoExportService
+import com.ashbash.vidoxproject.ui.shared.BusyProgressDialog
 import com.ashbash.vidoxproject.ui.shared.PlatformBadge
 import kotlinx.coroutines.launch
 
@@ -66,8 +69,12 @@ fun VideoDetailScreen(
     val scope = rememberCoroutineScope()
     val app = VidoXApp.instance
     val export = remember { VideoExportService(context) }
+    val redownloader = remember { VideoRedownloader(app) }
     var alert by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var isRedownloading by remember { mutableStateOf(false) }
+    var redownloadLabel by remember { mutableStateOf("Looking up…") }
+    var redownloadFraction by remember { mutableStateOf<Float?>(null) }
 
     val createDoc = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("video/*")
@@ -156,9 +163,36 @@ fun VideoDetailScreen(
             if (!file.exists()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    "File missing on disk. Delete this entry or download again.",
+                    "File missing on disk. Redownload to restore it without creating a duplicate.",
                     color = MaterialTheme.colorScheme.error
                 )
+                Spacer(modifier = Modifier.height(10.dp))
+                Button(
+                    onClick = {
+                        isRedownloading = true
+                        redownloadLabel = "Looking up…"
+                        redownloadFraction = null
+                        scope.launch {
+                            try {
+                                redownloader.redownload(current) { label, fraction ->
+                                    redownloadLabel = label
+                                    redownloadFraction = fraction
+                                }
+                                alert = "Redownloaded successfully."
+                            } catch (e: Exception) {
+                                alert = e.message ?: "Redownload failed."
+                            } finally {
+                                isRedownloading = false
+                            }
+                        }
+                    },
+                    enabled = !isRedownloading,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Redownload")
+                }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -230,6 +264,13 @@ fun VideoDetailScreen(
                 Text("Delete from Library")
             }
         }
+    }
+
+    if (isRedownloading) {
+        BusyProgressDialog(
+            label = redownloadLabel,
+            progressFraction = redownloadFraction
+        )
     }
 
     if (confirmDelete) {

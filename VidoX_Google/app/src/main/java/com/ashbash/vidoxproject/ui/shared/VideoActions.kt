@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -25,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.ashbash.vidoxproject.VidoXApp
 import com.ashbash.vidoxproject.data.DownloadedVideo
+import com.ashbash.vidoxproject.services.download.VideoRedownloader
 import com.ashbash.vidoxproject.services.export.ExportError
 import com.ashbash.vidoxproject.services.export.VideoExportService
 import kotlinx.coroutines.launch
@@ -41,8 +43,13 @@ fun VideoActionsMenu(
     val scope = rememberCoroutineScope()
     val app = VidoXApp.instance
     val export = remember { VideoExportService(context) }
+    val redownloader = remember { VideoRedownloader(app) }
     var alert by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var isRedownloading by remember { mutableStateOf(false) }
+    var redownloadLabel by remember { mutableStateOf("Looking up…") }
+    var redownloadFraction by remember { mutableStateOf<Float?>(null) }
+    val fileExists = app.fileStorage.fileExists(video.localFilePath)
 
     val createDoc = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("video/*")
@@ -71,6 +78,32 @@ fun VideoActionsMenu(
                 }
             )
         }
+        if (!fileExists) {
+            DropdownMenuItem(
+                text = { Text("Redownload") },
+                onClick = {
+                    onDismiss()
+                    isRedownloading = true
+                    redownloadLabel = "Looking up…"
+                    redownloadFraction = null
+                    scope.launch {
+                        try {
+                            redownloader.redownload(video) { label, fraction ->
+                                redownloadLabel = label
+                                redownloadFraction = fraction
+                            }
+                            alert = "Redownloaded successfully."
+                            onChanged()
+                        } catch (e: Exception) {
+                            alert = e.message ?: "Redownload failed."
+                        } finally {
+                            isRedownloading = false
+                        }
+                    }
+                },
+                leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) }
+            )
+        }
         DropdownMenuItem(
             text = { Text(if (video.isPinned) "Unpin" else "Pin") },
             onClick = {
@@ -84,6 +117,7 @@ fun VideoActionsMenu(
         )
         DropdownMenuItem(
             text = { Text("Save to Gallery") },
+            enabled = fileExists,
             onClick = {
                 onDismiss()
                 scope.launch {
@@ -100,6 +134,7 @@ fun VideoActionsMenu(
         )
         DropdownMenuItem(
             text = { Text("Share") },
+            enabled = fileExists,
             onClick = {
                 onDismiss()
                 try {
@@ -114,6 +149,7 @@ fun VideoActionsMenu(
         )
         DropdownMenuItem(
             text = { Text("Save to Files…") },
+            enabled = fileExists,
             onClick = {
                 onDismiss()
                 createDoc.launch("${video.title}.${video.fileExtension}")
@@ -127,6 +163,13 @@ fun VideoActionsMenu(
                 confirmDelete = true
             },
             leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) }
+        )
+    }
+
+    if (isRedownloading) {
+        BusyProgressDialog(
+            label = redownloadLabel,
+            progressFraction = redownloadFraction
         )
     }
 

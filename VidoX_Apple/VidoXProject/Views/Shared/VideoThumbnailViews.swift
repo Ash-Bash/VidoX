@@ -110,6 +110,9 @@ struct VideoThumbnailView: View {
 struct VideoGridItemView: View {
     let video: DownloadedVideo
 
+    /// Reserved height for 2 caption lines so every cell stays the same height in a row.
+    private static let titleBlockHeight: CGFloat = 34
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .bottomTrailing) {
@@ -123,11 +126,16 @@ struct VideoGridItemView: View {
                             .padding(5)
                             .background(Color.orange.opacity(0.9), in: Circle())
                     }
-                    Image(systemName: "play.fill")
+                    Image(systemName: video.isFileAvailable ? "play.fill" : "exclamationmark")
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(.white)
                         .padding(5)
-                        .background(.black.opacity(0.45), in: Circle())
+                        .background(
+                            video.isFileAvailable
+                                ? Color.black.opacity(0.45)
+                                : Color.orange.opacity(0.95),
+                            in: Circle()
+                        )
                 }
                 .padding(6)
             }
@@ -140,16 +148,25 @@ struct VideoGridItemView: View {
                     .foregroundStyle(.primary)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, minHeight: Self.titleBlockHeight, alignment: .topLeading)
 
-                Text("\(video.platform.displayName) · \(video.formattedFileSize)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                Text(
+                    video.isFileAvailable
+                        ? "\(video.platform.displayName) · \(video.formattedFileSize)"
+                        : "\(video.platform.displayName) · Missing file"
+                )
+                .font(.caption2)
+                .foregroundStyle(video.isFileAvailable ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
+                .lineLimit(1)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(video.title), \(video.formattedFileSize)")
+        .accessibilityLabel(
+            video.isFileAvailable
+                ? "\(video.title), \(video.formattedFileSize)"
+                : "\(video.title), file missing"
+        )
         .accessibilityAddTraits(.isButton)
     }
 }

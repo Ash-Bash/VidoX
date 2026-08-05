@@ -15,6 +15,8 @@ struct VideoDetailView: View {
 
     @State private var exportService = VideoExportService()
     @State private var isBusy = false
+    @State private var isRedownloading = false
+    @State private var busyLabel = "Looking up…"
     @State private var alertMessage: String?
     @State private var showDeleteConfirm = false
     @State private var showFullScreenPlayer = false
@@ -32,13 +34,7 @@ struct VideoDetailView: View {
         .background(Color.primary.opacity(0.03))
         .navigationTitle(video.title)
         .modifier(InlineNavigationTitleModifier())
-        .overlay {
-            if isBusy {
-                ProgressView("Working…")
-                    .padding()
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            }
-        }
+        .busyProgressCover(isPresented: $isRedownloading, label: busyLabel)
         .alert("Notice", isPresented: Binding(
             get: { alertMessage != nil },
             set: { if !$0 { alertMessage = nil } }
@@ -97,7 +93,7 @@ struct VideoDetailView: View {
                     ContentUnavailableView(
                         "File Missing",
                         systemImage: "exclamationmark.triangle",
-                        description: Text("This video file is no longer on disk.")
+                        description: Text("This video file is no longer on disk. Redownload to restore it without creating a duplicate.")
                     )
                 }
             }
@@ -108,19 +104,29 @@ struct VideoDetailView: View {
             .background(Color.black, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
             HStack {
-                Button {
-                    prepareAndPlay()
-                } label: {
-                    Label(player == nil ? "Play" : "Replay", systemImage: "play.fill")
-                }
-                .buttonStyle(.borderedProminent)
+                if video.isFileAvailable {
+                    Button {
+                        prepareAndPlay()
+                    } label: {
+                        Label(player == nil ? "Play" : "Replay", systemImage: "play.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
 
-                Button {
-                    showFullScreenPlayer = true
-                } label: {
-                    Label("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right")
+                    Button {
+                        showFullScreenPlayer = true
+                    } label: {
+                        Label("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right")
+                    }
+                    .buttonStyle(.bordered)
+                } else {
+                    Button {
+                        Task { await redownload() }
+                    } label: {
+                        Label("Redownload", systemImage: "arrow.clockwise.circle")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isRedownloading)
                 }
-                .buttonStyle(.bordered)
 
                 Button {
                     video.togglePinned()
@@ -209,24 +215,36 @@ struct VideoDetailView: View {
             actionButton("Save to Photos", systemImage: "photo.on.rectangle") {
                 Task { await saveToPhotos() }
             }
+            .disabled(!video.isFileAvailable)
             Divider().padding(.leading, 48)
-            ShareLink(item: video.fileURL) {
-                actionLabel("Share / Save to Files…", systemImage: "square.and.arrow.up")
+            if video.isFileAvailable {
+                ShareLink(item: video.fileURL) {
+                    actionLabel("Share / Save to Files…", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
             #elseif os(macOS)
             actionButton("Save to Photos", systemImage: "photo.on.rectangle") {
                 Task { await saveToPhotos() }
             }
+            .disabled(!video.isFileAvailable)
             Divider().padding(.leading, 48)
             actionButton("Save to Disk…", systemImage: "folder") {
                 Task { await saveToFilesystem() }
             }
+            .disabled(!video.isFileAvailable)
             Divider().padding(.leading, 48)
             actionButton("Show in Finder", systemImage: "finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([video.fileURL])
             }
+            .disabled(!video.isFileAvailable)
             #endif
+            if !video.isFileAvailable {
+                Divider().padding(.leading, 48)
+                actionButton("Redownload", systemImage: "arrow.clockwise.circle") {
+                    Task { await redownload() }
+                }
+            }
             Divider().padding(.leading, 48)
             Button(role: .destructive) {
                 showDeleteConfirm = true
@@ -243,7 +261,7 @@ struct VideoDetailView: View {
             actionLabel(title, systemImage: systemImage)
         }
         .buttonStyle(.plain)
-        .disabled(isBusy)
+        .disabled(isBusy || isRedownloading)
     }
 
     private func actionLabel(_ title: String, systemImage: String, destructive: Bool = false) -> some View {
@@ -272,6 +290,20 @@ struct VideoDetailView: View {
         player = newPlayer
         newPlayer.seek(to: .zero)
         newPlayer.play()
+    }
+
+    private func redownload() async {
+        isRedownloading = true
+        busyLabel = "Looking up…"
+        defer { isRedownloading = false }
+        do {
+            try await VideoRedownloader.redownload(video: video, modelContext: modelContext) { label, _ in
+                busyLabel = label
+            }
+            alertMessage = "Redownloaded successfully."
+        } catch {
+            alertMessage = error.localizedDescription
+        }
     }
 
     private func saveToPhotos() async {

@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -217,14 +218,19 @@ fun VideoThumbnailView(
                     }
                 }
                 if (showPlayBadge) {
+                    val missing = file == null || !file.exists()
                     Box(
                         modifier = Modifier
                             .size(20.dp)
-                            .background(Color.Black.copy(alpha = 0.45f), CircleShape),
+                            .background(
+                                if (missing) Color(0xFFFF9F0A).copy(alpha = 0.95f)
+                                else Color.Black.copy(alpha = 0.45f),
+                                CircleShape
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            Icons.Default.PlayArrow,
+                            if (missing) Icons.Default.Warning else Icons.Default.PlayArrow,
                             contentDescription = null,
                             modifier = Modifier.size(12.dp),
                             tint = Color.White
@@ -282,9 +288,17 @@ fun VideoRowView(
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    "${video.platform.displayName} · ${formatRelativeTime(video.downloadedAt)} · $sizeLabel",
+                    if (!file.exists()) {
+                        "${video.platform.displayName} · Missing file"
+                    } else {
+                        "${video.platform.displayName} · ${formatRelativeTime(video.downloadedAt)} · $sizeLabel"
+                    },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (!file.exists()) {
+                        Color(0xFFFF9F0A)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -308,8 +322,9 @@ fun VideoRowView(
 fun VideoGridItemView(video: DownloadedVideo, modifier: Modifier = Modifier) {
     val storage = VidoXApp.instance.fileStorage
     val file = storage.resolvedFile(video.localFilePath)
+    val missing = !file.exists()
     val sizeLabel = storage.formatByteCount(
-        if (file.exists()) file.length() else video.fileSize
+        if (!missing) file.length() else video.fileSize
     )
     Column(modifier = modifier) {
         VideoThumbnailView(
@@ -323,16 +338,28 @@ fun VideoGridItemView(video: DownloadedVideo, modifier: Modifier = Modifier) {
             showPinnedBadge = video.isPinned
         )
         Spacer(modifier = Modifier.height(6.dp))
+        // Reserve 2 title lines so every grid cell stays the same height in a row.
         Text(
             video.title,
             style = MaterialTheme.typography.labelLarge,
             maxLines = 2,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(36.dp)
         )
         Text(
-            "${video.platform.displayName} · $sizeLabel",
+            if (missing) {
+                "${video.platform.displayName} · Missing file"
+            } else {
+                "${video.platform.displayName} · $sizeLabel"
+            },
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (missing) {
+                Color(0xFFFF9F0A)
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )

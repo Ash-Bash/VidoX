@@ -1,8 +1,8 @@
 package com.ashbash.vidoxproject.ui.settings
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -33,14 +33,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ashbash.vidoxproject.BuildConfig
+import com.ashbash.vidoxproject.R
 import com.ashbash.vidoxproject.VidoXApp
 import com.ashbash.vidoxproject.models.VideoPlatform
 import com.ashbash.vidoxproject.ui.shared.LargeTitleHeader
@@ -90,27 +92,13 @@ fun SettingsScreen(
                         .padding(horizontal = 16.dp, vertical = 18.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
+                    Image(
+                        painter = painterResource(R.drawable.ic_app_icon),
+                        contentDescription = null,
                         modifier = Modifier
                             .size(56.dp)
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(
-                                        MaterialTheme.colorScheme.primary,
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                                    )
-                                ),
-                                RoundedCornerShape(16.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Default.Download,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
+                            .clip(RoundedCornerShape(16.dp))
+                    )
                     Spacer(modifier = Modifier.width(14.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text("VidoX", style = MaterialTheme.typography.titleLarge)
@@ -151,9 +139,9 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         if (missing == 1) {
-                            "1 library item has no file on disk. Delete it or download again."
+                            "1 library item has no file on disk. Open it and tap Redownload, or delete it."
                         } else {
-                            "$missing library items have no file on disk. Delete them or download again."
+                            "$missing library items have no file on disk. Open each and tap Redownload, or delete them."
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.tertiary
