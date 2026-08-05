@@ -1,0 +1,8 @@
+# Module-level extras; root .gitignore covers most Android/IDE noise.
+*.iml
+.gradle/
+local.properties
+/build
+/captures
+.externalNativeBuild
+.cxx

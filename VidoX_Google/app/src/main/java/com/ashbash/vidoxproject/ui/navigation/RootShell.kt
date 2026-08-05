@@ -1,0 +1,383 @@
+package com.ashbash.vidoxproject.ui.navigation
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
+import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
+import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.activity.ComponentActivity
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ashbash.vidoxproject.VidoXApp
+import com.ashbash.vidoxproject.ui.downloader.DownloaderSheet
+import com.ashbash.vidoxproject.ui.library.LibraryScreen
+import com.ashbash.vidoxproject.ui.library.VideoDetailScreen
+import com.ashbash.vidoxproject.ui.pins.PinsScreen
+import com.ashbash.vidoxproject.ui.recent.RecentScreen
+import com.ashbash.vidoxproject.ui.settings.SettingsScreen
+import com.ashbash.vidoxproject.ui.shared.DownloadCircleButton
+import com.ashbash.vidoxproject.ui.shared.FloatingPillNavigationBar
+import com.ashbash.vidoxproject.ui.shared.VideoThumbnailView
+import com.ashbash.vidoxproject.ui.shared.compactFloatingNavClearance
+
+@OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
+@Composable
+fun RootShell(navigation: AppNavigationState = viewModel()) {
+    val activity = LocalContext.current as ComponentActivity
+    val widthClass = calculateWindowSizeClass(activity).widthSizeClass
+    val useSplit = widthClass != WindowWidthSizeClass.Compact
+
+    if (navigation.isDownloaderPresented) {
+        DownloaderSheet(onDismiss = navigation::closeDownloader)
+    }
+
+    if (useSplit) {
+        RegularSplitShell(navigation)
+    } else {
+        CompactTabShell(navigation)
+    }
+}
+
+@Composable
+private fun CompactTabShell(navigation: AppNavigationState) {
+    val destinations = AppDestination.entries
+    val showingDetail = navigation.selectedVideoId != null
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        val bottomClearance = if (showingDetail) 0.dp else compactFloatingNavClearance()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top)
+                )
+                .padding(bottom = bottomClearance)
+        ) {
+            CompactContent(navigation)
+        }
+
+        if (!showingDetail) {
+            FloatingPillNavigationBar(
+                destinations = destinations,
+                selected = navigation.selectedDestination,
+                onSelect = navigation::selectDestination,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
+        }
+    }
+}
+
+@Composable
+private fun CompactContent(navigation: AppNavigationState) {
+    val videoId = navigation.selectedVideoId
+    if (videoId != null) {
+        VideoDetailScreen(
+            videoId = videoId,
+            onBack = { navigation.selectedVideoId = null }
+        )
+        return
+    }
+
+    when (navigation.selectedDestination) {
+        AppDestination.Recent -> RecentScreen(
+            onOpenDownloader = navigation::openDownloader,
+            onOpenVideo = { navigation.selectedVideoId = it },
+            showDownloadButton = true
+        )
+        AppDestination.Library -> LibraryScreen(
+            onOpenDownloader = navigation::openDownloader,
+            onOpenVideo = { navigation.selectedVideoId = it },
+            showDownloadButton = true
+        )
+        AppDestination.Pins -> PinsScreen(
+            onOpenDownloader = navigation::openDownloader,
+            onOpenVideo = { navigation.selectedVideoId = it },
+            onBrowseLibrary = { navigation.selectDestination(AppDestination.Library) },
+            showDownloadButton = true
+        )
+        AppDestination.Settings -> SettingsScreen(
+            onOpenDownloader = navigation::openDownloader,
+            showDownloadButton = true
+        )
+    }
+}
+
+/**
+ * Tablet / Chromebook shell — sidebar with Browse + Pinned, detail pane on the right
+ * (mirrors Apple NavigationSplitView).
+ */
+@Composable
+private fun RegularSplitShell(navigation: AppNavigationState) {
+    val pinned by VidoXApp.instance.repository.observePinned()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val storage = VidoXApp.instance.fileStorage
+    val browseDestinations = listOf(
+        AppDestination.Recent,
+        AppDestination.Library,
+        AppDestination.Settings
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            // safeDrawing includes desktop/ChromeOS caption bars — statusBars alone does not.
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+    ) {
+        Surface(
+            modifier = Modifier
+                .width(300.dp)
+                .fillMaxHeight(),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 1.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 14.dp)
+                    .padding(top = 12.dp, bottom = 16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "VidoX",
+                        style = MaterialTheme.typography.headlineMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    DownloadCircleButton(onClick = navigation::openDownloader)
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(
+                    "BROWSE",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                browseDestinations.forEach { destination ->
+                    val selected = navigation.splitSelection is SplitSidebarSelection.Destination &&
+                        (navigation.splitSelection as SplitSidebarSelection.Destination).destination == destination &&
+                        navigation.selectedVideoId == null
+                    SidebarDestinationRow(
+                        destination = destination,
+                        selected = selected,
+                        onClick = { navigation.selectDestination(destination) }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.PushPin,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        "Pinned",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (pinned.isEmpty()) {
+                    Text(
+                        "Pin videos from Library",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        items(pinned, key = { it.id }) { video ->
+                            val selected = navigation.splitSelection is SplitSidebarSelection.PinnedVideo &&
+                                (navigation.splitSelection as SplitSidebarSelection.PinnedVideo).id == video.id
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(
+                                        if (selected) {
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                        } else {
+                                            Color.Transparent
+                                        }
+                                    )
+                                    .clickable {
+                                        navigation.splitSelection = SplitSidebarSelection.PinnedVideo(video.id)
+                                        navigation.selectedVideoId = video.id
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                VideoThumbnailView(
+                                    file = storage.resolvedFile(video.localFilePath),
+                                    savedThumbnail = storage.resolvedThumbnail(video.thumbnailPath),
+                                    modifier = Modifier.size(40.dp),
+                                    cornerRadius = 6
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        video.title,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                                    )
+                                    Text(
+                                        video.platform.displayName,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        VerticalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+        ) {
+            when (val selection = navigation.splitSelection) {
+                is SplitSidebarSelection.Destination -> {
+                    navigation.selectedVideoId?.let { id ->
+                        VideoDetailScreen(
+                            videoId = id,
+                            onBack = { navigation.selectedVideoId = null }
+                        )
+                    } ?: when (selection.destination) {
+                        AppDestination.Recent -> RecentScreen(
+                            onOpenDownloader = navigation::openDownloader,
+                            onOpenVideo = { navigation.selectedVideoId = it },
+                            showDownloadButton = false
+                        )
+                        AppDestination.Library -> LibraryScreen(
+                            onOpenDownloader = navigation::openDownloader,
+                            onOpenVideo = { navigation.selectedVideoId = it },
+                            showDownloadButton = false
+                        )
+                        AppDestination.Pins -> PinsScreen(
+                            onOpenDownloader = navigation::openDownloader,
+                            onOpenVideo = { navigation.selectedVideoId = it },
+                            onBrowseLibrary = { navigation.selectDestination(AppDestination.Library) },
+                            showDownloadButton = false
+                        )
+                        AppDestination.Settings -> SettingsScreen(
+                            onOpenDownloader = navigation::openDownloader,
+                            showDownloadButton = false
+                        )
+                    }
+                }
+                is SplitSidebarSelection.PinnedVideo -> {
+                    VideoDetailScreen(
+                        videoId = selection.id,
+                        onBack = { navigation.selectDestination(AppDestination.Library) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SidebarDestinationRow(
+    destination: AppDestination,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                if (selected) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                } else {
+                    Color.Transparent
+                }
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            destination.icon,
+            contentDescription = null,
+            tint = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(
+            destination.title,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            }
+        )
+    }
+}

@@ -1,0 +1,2 @@
+# Keep module ignores minimal; root .gitignore owns monorepo rules.
+/build

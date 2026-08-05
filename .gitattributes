@@ -1,0 +1,45 @@
+# Normalize text; keep binaries intact.
+* text=auto eol=lf
+
+# Force LF on scripts / Gradle / Kotlin / Swift sources
+*.sh text eol=lf
+*.kt text eol=lf
+*.kts text eol=lf
+*.swift text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.xml text eol=lf
+*.plist text eol=lf
+*.gradle text eol=lf
+*.properties text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Windows wrapper keeps CRLF
+*.bat text eol=crlf
+
+# Xcode project — treat as text for usable diffs
+*.pbxproj text
+*.xcworkspacedata text
+*.xcsettings text
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.jar binary
+*.so binary
+*.dylib binary
+*.a binary
+*.otf binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+*.mp4 binary
+*.mov binary
+*.pdf binary

@@ -1,0 +1,5 @@
+# Module-level extras; root .gitignore covers Xcode/DerivedData/user data.
+xcuserdata/
+DerivedData/
+*.xcuserstate
+build/
