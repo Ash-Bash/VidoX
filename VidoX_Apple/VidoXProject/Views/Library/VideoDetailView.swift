@@ -10,6 +10,7 @@ import AppKit
 struct VideoDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(AppNavigationState.self) private var navigation
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     let video: DownloadedVideo
 
@@ -51,14 +52,21 @@ struct VideoDetailView: View {
         }
         .sheet(isPresented: $showFullScreenPlayer) {
             NavigationStack {
-                LibraryVideoPlayerView(url: video.fileURL)
-                    .navigationTitle(video.title)
-                    .modifier(InlineNavigationTitleModifier())
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") { showFullScreenPlayer = false }
-                        }
+                Group {
+                    if let player {
+                        LibraryVideoPlayerView(player: player)
+                    } else {
+                        ProgressView("Loading video…")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
+                }
+                .navigationTitle(video.title)
+                .modifier(InlineNavigationTitleModifier())
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") { showFullScreenPlayer = false }
+                    }
+                }
             }
             #if os(macOS)
             .frame(minWidth: 720, minHeight: 480)
@@ -73,9 +81,9 @@ struct VideoDetailView: View {
         VStack(spacing: 12) {
             ZStack {
                 if video.isFileAvailable {
-                    if let player {
+                    if let player, !showFullScreenPlayer {
                         VideoPlayer(player: player)
-                    } else {
+                    } else if player == nil {
                         VideoThumbnailView(url: video.fileURL, cornerRadius: 14)
                             .overlay {
                                 Button {
@@ -88,6 +96,8 @@ struct VideoDetailView: View {
                                 }
                                 .buttonStyle(.plain)
                             }
+                    } else {
+                        Color.black
                     }
                 } else {
                     ContentUnavailableView(
@@ -103,29 +113,35 @@ struct VideoDetailView: View {
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .background(Color.black, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-            HStack {
+            HStack(spacing: 8) {
                 if video.isFileAvailable {
                     Button {
                         prepareAndPlay()
                     } label: {
                         Label(player == nil ? "Play" : "Replay", systemImage: "play.fill")
+                            .modifier(EqualWidthLabelModifier(enabled: fillsActionRow))
                     }
                     .buttonStyle(.borderedProminent)
+                    .frame(maxWidth: fillsActionRow ? .infinity : nil)
 
                     Button {
-                        showFullScreenPlayer = true
+                        presentFullScreen()
                     } label: {
                         Label("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right")
+                            .modifier(EqualWidthLabelModifier(enabled: fillsActionRow))
                     }
                     .buttonStyle(.bordered)
+                    .frame(maxWidth: fillsActionRow ? .infinity : nil)
                 } else {
                     Button {
                         Task { await redownload() }
                     } label: {
                         Label("Redownload", systemImage: "arrow.clockwise.circle")
+                            .modifier(EqualWidthLabelModifier(enabled: fillsActionRow))
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(isRedownloading)
+                    .frame(maxWidth: fillsActionRow ? .infinity : nil)
                 }
 
                 Button {
@@ -133,10 +149,14 @@ struct VideoDetailView: View {
                     try? modelContext.save()
                 } label: {
                     Label(video.isPinned ? "Unpin" : "Pin", systemImage: video.isPinned ? "pin.slash.fill" : "pin.fill")
+                        .modifier(EqualWidthLabelModifier(enabled: fillsActionRow))
                 }
                 .buttonStyle(.bordered)
+                .frame(maxWidth: fillsActionRow ? .infinity : nil)
 
-                Spacer()
+                if !fillsActionRow {
+                    Spacer()
+                }
             }
         }
     }
@@ -279,17 +299,35 @@ struct VideoDetailView: View {
     }
 
     private func prepareAndPlay() {
+        guard let existing = ensurePreparedPlayer() else { return }
+        existing.seek(to: .zero)
+        existing.play()
+    }
+
+    private func presentFullScreen() {
+        guard ensurePreparedPlayer() != nil else { return }
+        player?.play()
+        showFullScreenPlayer = true
+    }
+
+    @discardableResult
+    private func ensurePreparedPlayer() -> AVPlayer? {
         guard video.isFileAvailable else {
             alertMessage = "This video file is missing from disk."
-            return
+            return nil
+        }
+        if let player {
+            PlaybackAudioSession.activateForPlayback()
+            player.isMuted = false
+            player.volume = 1
+            return player
         }
         PlaybackAudioSession.activateForPlayback()
         let newPlayer = AVPlayer(url: video.fileURL)
         newPlayer.isMuted = false
         newPlayer.volume = 1
         player = newPlayer
-        newPlayer.seek(to: .zero)
-        newPlayer.play()
+        return newPlayer
     }
 
     private func redownload() async {
@@ -345,6 +383,30 @@ struct VideoDetailView: View {
         }
         modelContext.delete(video)
         try? modelContext.save()
+    }
+
+    /// Phone / compact width: stretch Play, Full Screen, and Pin across the row.
+    private var fillsActionRow: Bool {
+        #if os(macOS)
+        false
+        #else
+        sizeClass != .regular
+        #endif
+    }
+}
+
+private struct EqualWidthLabelModifier: ViewModifier {
+    let enabled: Bool
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(maxWidth: .infinity)
+        } else {
+            content
+        }
     }
 }
 

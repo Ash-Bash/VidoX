@@ -236,12 +236,14 @@ struct DownloaderSheet: View {
                 ProgressView(value: fraction)
             } else {
                 ProgressView()
+                    .progressViewStyle(.linear)
             }
             Text(viewModel.progressLabel)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(.background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 

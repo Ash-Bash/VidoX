@@ -3,9 +3,14 @@ package com.ashbash.vidoxproject.ui.library
 import android.content.Intent
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -13,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -20,7 +26,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Photo
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
@@ -43,11 +51,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.ashbash.vidoxproject.VidoXApp
@@ -75,6 +89,7 @@ fun VideoDetailScreen(
     var isRedownloading by remember { mutableStateOf(false) }
     var redownloadLabel by remember { mutableStateOf("Looking up…") }
     var redownloadFraction by remember { mutableStateOf<Float?>(null) }
+    var isFullscreen by remember(videoId) { mutableStateOf(false) }
 
     val createDoc = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("video/*")
@@ -122,6 +137,35 @@ fun VideoDetailScreen(
             onDispose { player.release() }
         }
 
+        BackHandler(enabled = isFullscreen) {
+            isFullscreen = false
+        }
+
+        if (isFullscreen) {
+            Dialog(
+                onDismissRequest = { isFullscreen = false },
+                properties = DialogProperties(
+                    dismissOnBackPress = true,
+                    dismissOnClickOutside = false,
+                    usePlatformDefaultWidth = false,
+                    decorFitsSystemWindows = false
+                )
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                ) {
+                    LibraryPlayerView(
+                        player = player,
+                        isFullscreen = true,
+                        onFullscreenChange = { isFullscreen = it },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -129,21 +173,23 @@ fun VideoDetailScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(20.dp)
         ) {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        layoutParams = FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT
-                        )
-                        this.player = player
-                        useController = true
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-            )
+            if (isFullscreen) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .background(Color.Black)
+                )
+            } else {
+                LibraryPlayerView(
+                    player = player,
+                    isFullscreen = false,
+                    onFullscreenChange = { isFullscreen = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
             Text(current.title, style = MaterialTheme.typography.headlineSmall)
@@ -166,45 +212,74 @@ fun VideoDetailScreen(
                     "File missing on disk. Redownload to restore it without creating a duplicate.",
                     color = MaterialTheme.colorScheme.error
                 )
-                Spacer(modifier = Modifier.height(10.dp))
-                Button(
-                    onClick = {
-                        isRedownloading = true
-                        redownloadLabel = "Looking up…"
-                        redownloadFraction = null
-                        scope.launch {
-                            try {
-                                redownloader.redownload(current) { label, fraction ->
-                                    redownloadLabel = label
-                                    redownloadFraction = fraction
-                                }
-                                alert = "Redownloaded successfully."
-                            } catch (e: Exception) {
-                                alert = e.message ?: "Redownload failed."
-                            } finally {
-                                isRedownloading = false
-                            }
-                        }
-                    },
-                    enabled = !isRedownloading,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Redownload")
-                }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
-            Row {
-                Button(onClick = {
-                    scope.launch {
-                        app.repository.togglePinned(current)
+            Spacer(modifier = Modifier.height(16.dp))
+            val actionPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (file.exists()) {
+                    Button(
+                        onClick = {
+                            if (player.playbackState == Player.STATE_ENDED) {
+                                player.seekTo(0)
+                            }
+                            player.play()
+                        },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = actionPadding
+                    ) {
+                        EqualWidthButtonLabel(Icons.Default.PlayArrow, "Play")
                     }
-                }) {
-                    Icon(Icons.Default.PushPin, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (current.isPinned) "Unpin" else "Pin")
+                    OutlinedButton(
+                        onClick = { isFullscreen = true },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = actionPadding
+                    ) {
+                        EqualWidthButtonLabel(Icons.Default.Fullscreen, "Full Screen")
+                    }
+                } else {
+                    Button(
+                        onClick = {
+                            isRedownloading = true
+                            redownloadLabel = "Looking up…"
+                            redownloadFraction = null
+                            scope.launch {
+                                try {
+                                    redownloader.redownload(current) { label, fraction ->
+                                        redownloadLabel = label
+                                        redownloadFraction = fraction
+                                    }
+                                    alert = "Redownloaded successfully."
+                                } catch (e: Exception) {
+                                    alert = e.message ?: "Redownload failed."
+                                } finally {
+                                    isRedownloading = false
+                                }
+                            }
+                        },
+                        enabled = !isRedownloading,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = actionPadding
+                    ) {
+                        EqualWidthButtonLabel(Icons.Default.Refresh, "Redownload")
+                    }
+                }
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            app.repository.togglePinned(current)
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = actionPadding
+                ) {
+                    EqualWidthButtonLabel(
+                        Icons.Default.PushPin,
+                        if (current.isPinned) "Unpin" else "Pin"
+                    )
                 }
             }
             Spacer(modifier = Modifier.height(10.dp))
@@ -306,4 +381,58 @@ fun VideoDetailScreen(
             }
         )
     }
+}
+
+@Composable
+private fun EqualWidthButtonLabel(icon: ImageVector, text: String) {
+    Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+    Spacer(modifier = Modifier.width(4.dp))
+    Text(
+        text,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+}
+
+/** Single ExoPlayer surface — inline or fullscreen, never both at once. */
+@Composable
+private fun LibraryPlayerView(
+    player: ExoPlayer,
+    isFullscreen: Boolean,
+    onFullscreenChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    AndroidView(
+        factory = { ctx ->
+            PlayerView(ctx).apply {
+                layoutParams = FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    if (isFullscreen) {
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    } else {
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    }
+                )
+                useController = true
+                this.player = player
+                setFullscreenButtonState(isFullscreen)
+                setFullscreenButtonClickListener { goingFullscreen ->
+                    onFullscreenChange(goingFullscreen)
+                }
+            }
+        },
+        update = { view ->
+            if (view.player !== player) {
+                view.player = player
+            }
+            view.setFullscreenButtonState(isFullscreen)
+            view.setFullscreenButtonClickListener { goingFullscreen ->
+                onFullscreenChange(goingFullscreen)
+            }
+        },
+        onRelease = { view ->
+            view.player = null
+        },
+        modifier = modifier
+    )
 }

@@ -172,31 +172,18 @@ struct VideoGridItemView: View {
 }
 
 /// Full-window player sheet for a library video.
+/// Reuses the detail view's `AVPlayer` so fullscreen cannot start a second audio stream.
 struct LibraryVideoPlayerView: View {
-    let url: URL
-    @State private var player: AVPlayer?
+    let player: AVPlayer
 
     var body: some View {
-        Group {
-            if let player {
-                VideoPlayer(player: player)
-            } else {
-                ProgressView("Loading video…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        VideoPlayer(player: player)
+            .background(Color.black)
+            .onAppear {
+                PlaybackAudioSession.activateForPlayback()
+                player.isMuted = false
+                player.volume = 1
+                player.play()
             }
-        }
-        .background(Color.black)
-        .onAppear {
-            PlaybackAudioSession.activateForPlayback()
-            let newPlayer = AVPlayer(url: url)
-            newPlayer.isMuted = false
-            newPlayer.volume = 1
-            player = newPlayer
-            newPlayer.play()
-        }
-        .onDisappear {
-            player?.pause()
-            player = nil
-        }
     }
 }
