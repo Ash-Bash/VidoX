@@ -35,6 +35,21 @@ class PlatformParityTest {
     }
 
     @Test
+    fun kkinstagramLinksDetectAsInstagram() {
+        val samples = listOf(
+            "https://www.kkinstagram.com/reel/AbCdEfGhIjK/",
+            "https://kkinstagram.com/p/AbCdEfGhIjK/"
+        )
+        samples.forEach { url ->
+            assertEquals("detect failed for $url", VideoPlatform.INSTAGRAM, VideoPlatform.detect(url))
+        }
+        val canonical = URLNormalizer.instagramCanonicalURL(
+            URL("https://www.kkinstagram.com/reel/AbCdEfGhIjK/")
+        )
+        assertEquals("https://www.instagram.com/reel/AbCdEfGhIjK/", canonical.toString())
+    }
+
+    @Test
     fun urlNormalizerAcceptsHttpsAndStripsTracking() {
         val url = URLNormalizer.url("https://www.youtube.com/watch?v=abc123&utm_source=share")
         assertNotNull(url)

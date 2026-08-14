@@ -15,7 +15,7 @@ struct PinnedVideosView: View {
                 EmptyStateView(
                     systemImage: "pin",
                     title: "No Pins Yet",
-                    message: "Pin videos from the Library or Recent with the context menu or detail screen. Pinned items show up here and in the sidebar on larger devices.",
+                    message: "Pin videos from the Library with the context menu or detail screen. Pinned items show up here and in the sidebar on larger devices.",
                     actionTitle: "Browse Library",
                     action: {
                         navigation.selectedDestination = .library

@@ -26,6 +26,14 @@ object HttpClients {
         .followSslRedirects(true)
         .build()
 
+    /** SnapSave / similar third-party resolvers that need a bit more than [fast]. */
+    val medium: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
+
     fun get(
         url: String,
         client: OkHttpClient = default,

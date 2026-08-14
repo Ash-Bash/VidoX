@@ -2,7 +2,6 @@ import SwiftUI
 
 /// Top-level destinations shared by TabView (Pins is its own tab).
 enum AppDestination: String, CaseIterable, Identifiable, Hashable {
-    case recent
     case library
     case pins
     case settings
@@ -11,7 +10,6 @@ enum AppDestination: String, CaseIterable, Identifiable, Hashable {
 
     var title: String {
         switch self {
-        case .recent: "Recent"
         case .library: "Library"
         case .pins: "Pins"
         case .settings: "Settings"
@@ -20,7 +18,6 @@ enum AppDestination: String, CaseIterable, Identifiable, Hashable {
 
     var systemImage: String {
         switch self {
-        case .recent: "clock.fill"
         case .library: "film.stack.fill"
         case .pins: "pin.fill"
         case .settings: "gearshape.fill"
@@ -37,10 +34,20 @@ enum SplitSidebarSelection: Hashable {
 /// Shared presentation state for the download sheet and selected destination.
 @Observable
 final class AppNavigationState {
-    var selectedDestination: AppDestination = .recent
+    var selectedDestination: AppDestination = .library
     /// Optional so `List(selection:)` works on iOS (requires `Binding<Selection?>`).
-    var splitSelection: SplitSidebarSelection? = .destination(.recent)
+    var splitSelection: SplitSidebarSelection? = .destination(.library)
     var isDownloaderPresented = false
     /// Selected library item for navigation within Library / Pins stacks.
     var selectedVideoID: UUID?
+
+    func go(to destination: AppDestination) {
+        selectedDestination = destination
+        splitSelection = .destination(destination)
+        selectedVideoID = nil
+    }
+
+    func openDownloader() {
+        isDownloaderPresented = true
+    }
 }

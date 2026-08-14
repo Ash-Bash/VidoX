@@ -18,7 +18,7 @@ struct DownloadToolbarButton: View {
 
     var body: some View {
         Button {
-            navigation.isDownloaderPresented = true
+            navigation.openDownloader()
         } label: {
             Label("Download", systemImage: "arrow.down.circle.fill")
         }

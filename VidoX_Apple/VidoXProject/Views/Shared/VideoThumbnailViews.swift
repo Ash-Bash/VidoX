@@ -31,6 +31,25 @@ enum LibraryLayoutMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// Persisted library sort (newest, title, file size, or social site).
+enum LibrarySortMode: String, CaseIterable, Identifiable {
+    case newest
+    case title
+    case size
+    case site
+
+    var id: String { rawValue }
+
+    var menuTitle: String {
+        switch self {
+        case .newest: "Newest"
+        case .title: "Title"
+        case .size: "Video size"
+        case .site: "Site"
+        }
+    }
+}
+
 /// Loads a still frame from a local video file for library cells.
 /// Sized by the parent — uses GeometryReader so `scaledToFill` cannot blow out the layout.
 struct VideoThumbnailView: View {

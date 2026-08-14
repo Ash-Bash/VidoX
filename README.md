@@ -22,9 +22,8 @@ VidoXProject/                 ← git root (run git commands here)
 
 - **Download** videos from supported social / media hosts into private app storage (sideload builds with experimental social downloads enabled).
 - **Supported hosts** (standalone mode): YouTube, X, Instagram, Facebook, TikTok, Vimeo, Dailymotion, Reddit, Twitch, Streamable, Rumble, plus generic page scrape and **direct file** links (`.mp4`, `.mov`, …).
-- **Library** — browse downloads as a grid or list, search, sort.
-- **Recent** — quick list of latest downloads.
-- **Pins** — pin favourites from Library / Recent / detail; on larger screens they also appear in the sidebar.
+- **Library** — browse downloads as a grid or list, search, and sort (newest, title, size, or site).
+- **Pins** — pin favourites from Library or the detail screen; on larger screens they also appear in the sidebar.
 - **Play** downloads in-app (detail player).
 - **Export** a copy out of the sandbox when you choose: Gallery / Photos, Share, or save to Files.
 - **Adaptive UI** — phone tabs (floating pill on Android); tablet / desktop / iPad split sidebar with pinned items.

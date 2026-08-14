@@ -51,7 +51,6 @@ import com.ashbash.vidoxproject.ui.downloader.DownloaderSheet
 import com.ashbash.vidoxproject.ui.library.LibraryScreen
 import com.ashbash.vidoxproject.ui.library.VideoDetailScreen
 import com.ashbash.vidoxproject.ui.pins.PinsScreen
-import com.ashbash.vidoxproject.ui.recent.RecentScreen
 import com.ashbash.vidoxproject.ui.settings.SettingsScreen
 import com.ashbash.vidoxproject.ui.shared.DownloadCircleButton
 import com.ashbash.vidoxproject.ui.shared.FloatingPillNavigationBar
@@ -121,15 +120,14 @@ private fun CompactContent(navigation: AppNavigationState) {
     }
 
     when (navigation.selectedDestination) {
-        AppDestination.Recent -> RecentScreen(
-            onOpenDownloader = navigation::openDownloader,
-            onOpenVideo = { navigation.selectedVideoId = it },
-            showDownloadButton = true
-        )
         AppDestination.Library -> LibraryScreen(
             onOpenDownloader = navigation::openDownloader,
             onOpenVideo = { navigation.selectedVideoId = it },
-            showDownloadButton = true
+            showDownloadButton = true,
+            layoutMode = navigation.libraryLayoutMode,
+            onLayoutModeChange = { navigation.libraryLayoutMode = it },
+            sortMode = navigation.librarySortMode,
+            onSortModeChange = { navigation.librarySortMode = it }
         )
         AppDestination.Pins -> PinsScreen(
             onOpenDownloader = navigation::openDownloader,
@@ -139,7 +137,8 @@ private fun CompactContent(navigation: AppNavigationState) {
         )
         AppDestination.Settings -> SettingsScreen(
             onOpenDownloader = navigation::openDownloader,
-            showDownloadButton = true
+            showDownloadButton = true,
+            onLibraryWiped = { navigation.selectedVideoId = null }
         )
     }
 }
@@ -154,18 +153,21 @@ private fun RegularSplitShell(navigation: AppNavigationState) {
         .collectAsStateWithLifecycle(initialValue = emptyList())
     val storage = VidoXApp.instance.fileStorage
     val browseDestinations = listOf(
-        AppDestination.Recent,
         AppDestination.Library,
         AppDestination.Settings
     )
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             // safeDrawing includes desktop/ChromeOS caption bars — statusBars alone does not.
             .windowInsetsPadding(WindowInsets.safeDrawing)
+            .vidoxDesktopShortcuts(navigation)
     ) {
+        DesktopMenuBar(navigation)
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+        Row(modifier = Modifier.weight(1f).fillMaxSize()) {
         Surface(
             modifier = Modifier
                 .width(300.dp)
@@ -304,15 +306,14 @@ private fun RegularSplitShell(navigation: AppNavigationState) {
                             onBack = { navigation.selectedVideoId = null }
                         )
                     } ?: when (selection.destination) {
-                        AppDestination.Recent -> RecentScreen(
-                            onOpenDownloader = navigation::openDownloader,
-                            onOpenVideo = { navigation.selectedVideoId = it },
-                            showDownloadButton = false
-                        )
                         AppDestination.Library -> LibraryScreen(
                             onOpenDownloader = navigation::openDownloader,
                             onOpenVideo = { navigation.selectedVideoId = it },
-                            showDownloadButton = false
+                            showDownloadButton = false,
+                            layoutMode = navigation.libraryLayoutMode,
+                            onLayoutModeChange = { navigation.libraryLayoutMode = it },
+                            sortMode = navigation.librarySortMode,
+                            onSortModeChange = { navigation.librarySortMode = it }
                         )
                         AppDestination.Pins -> PinsScreen(
                             onOpenDownloader = navigation::openDownloader,
@@ -322,7 +323,8 @@ private fun RegularSplitShell(navigation: AppNavigationState) {
                         )
                         AppDestination.Settings -> SettingsScreen(
                             onOpenDownloader = navigation::openDownloader,
-                            showDownloadButton = false
+                            showDownloadButton = false,
+                            onLibraryWiped = { navigation.selectedVideoId = null }
                         )
                     }
                 }
@@ -333,6 +335,7 @@ private fun RegularSplitShell(navigation: AppNavigationState) {
                     )
                 }
             }
+        }
         }
     }
 }

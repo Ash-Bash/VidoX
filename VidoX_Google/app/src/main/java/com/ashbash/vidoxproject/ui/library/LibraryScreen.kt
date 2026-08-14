@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.automirrored.filled.ViewList
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Movie
@@ -39,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ashbash.vidoxproject.VidoXApp
+import com.ashbash.vidoxproject.data.DownloadedVideo
 import com.ashbash.vidoxproject.ui.shared.CircleIconButton
 import com.ashbash.vidoxproject.ui.shared.EmptyStateView
 import com.ashbash.vidoxproject.ui.shared.LargeTitleHeader
@@ -50,21 +52,30 @@ import com.ashbash.vidoxproject.ui.shared.compactScrollBottomPadding
 
 enum class LibraryLayoutMode { Grid, List }
 
+enum class LibrarySortMode(val menuTitle: String) {
+    Newest("Newest"),
+    Title("Title"),
+    Size("Video size"),
+    Site("Site")
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LibraryScreen(
     onOpenDownloader: () -> Unit,
     onOpenVideo: (String) -> Unit,
-    showDownloadButton: Boolean = true
+    showDownloadButton: Boolean = true,
+    layoutMode: LibraryLayoutMode,
+    onLayoutModeChange: (LibraryLayoutMode) -> Unit,
+    sortMode: LibrarySortMode,
+    onSortModeChange: (LibrarySortMode) -> Unit
 ) {
     val videos by VidoXApp.instance.repository.observeAll()
         .collectAsStateWithLifecycle(initialValue = emptyList())
-    var layoutMode by remember { mutableStateOf(LibraryLayoutMode.Grid) }
-    var sortNewestFirst by remember { mutableStateOf(true) }
     var search by remember { mutableStateOf("") }
     var sortMenu by remember { mutableStateOf(false) }
 
-    val filtered = remember(videos, search, sortNewestFirst) {
+    val filtered = remember(videos, search, sortMode) {
         val base = if (search.isBlank()) {
             videos
         } else {
@@ -73,7 +84,18 @@ fun LibraryScreen(
                     (it.author?.contains(search, ignoreCase = true) == true)
             }
         }
-        if (sortNewestFirst) base else base.sortedBy { it.title.lowercase() }
+        when (sortMode) {
+            LibrarySortMode.Newest -> base
+            LibrarySortMode.Title -> base.sortedBy { it.title.lowercase() }
+            LibrarySortMode.Size -> base.sortedWith(
+                compareByDescending<DownloadedVideo> { it.fileSize }
+                    .thenByDescending { it.downloadedAt }
+            )
+            LibrarySortMode.Site -> base.sortedWith(
+                compareBy<DownloadedVideo> { it.platform.displayName.lowercase() }
+                    .thenBy { it.title.lowercase() }
+            )
+        }
     }
 
     Column(
@@ -94,11 +116,13 @@ fun LibraryScreen(
                         },
                         contentDescription = "Toggle layout",
                         onClick = {
-                            layoutMode = if (layoutMode == LibraryLayoutMode.Grid) {
-                                LibraryLayoutMode.List
-                            } else {
-                                LibraryLayoutMode.Grid
-                            }
+                            onLayoutModeChange(
+                                if (layoutMode == LibraryLayoutMode.Grid) {
+                                    LibraryLayoutMode.List
+                                } else {
+                                    LibraryLayoutMode.Grid
+                                }
+                            )
                         }
                     )
                     Box {
@@ -108,15 +132,20 @@ fun LibraryScreen(
                             onClick = { sortMenu = true }
                         )
                         DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
-                            DropdownMenuItem(
-                                text = {
-                                    Text(if (sortNewestFirst) "Sort by Title" else "Sort by Newest")
-                                },
-                                onClick = {
-                                    sortNewestFirst = !sortNewestFirst
-                                    sortMenu = false
-                                }
-                            )
+                            LibrarySortMode.entries.forEach { mode ->
+                                DropdownMenuItem(
+                                    text = { Text(mode.menuTitle) },
+                                    leadingIcon = {
+                                        if (sortMode == mode) {
+                                            Icon(Icons.Default.Check, contentDescription = null)
+                                        }
+                                    },
+                                    onClick = {
+                                        onSortModeChange(mode)
+                                        sortMenu = false
+                                    }
+                                )
+                            }
                         }
                     }
                     if (showDownloadButton) {

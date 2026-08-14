@@ -34,6 +34,12 @@ interface DownloadedVideoDao {
     @Update
     suspend fun update(video: DownloadedVideo)
 
+    @Query("SELECT * FROM downloaded_videos")
+    suspend fun getAll(): List<DownloadedVideo>
+
+    @Query("DELETE FROM downloaded_videos")
+    suspend fun deleteAll()
+
     @Delete
     suspend fun delete(video: DownloadedVideo)
 }

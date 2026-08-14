@@ -51,6 +51,18 @@ enum URLNormalizer {
         return components.url
     }
 
+    /// Rewrites kkinstagram (and similar) hosts to instagram.com for extractors that
+    /// only understand official Instagram URLs (yt-dlp).
+    static func instagramCanonicalURL(from url: URL) -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let host = components.host?.lowercased(),
+              host == "kkinstagram.com" || host.hasSuffix(".kkinstagram.com") else {
+            return url
+        }
+        components.host = "www.instagram.com"
+        return components.url ?? url
+    }
+
     // MARK: - Host / Facebook helpers
 
     private static func canonicalizeHost(_ host: String) -> String {

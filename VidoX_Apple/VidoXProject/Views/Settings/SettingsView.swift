@@ -3,18 +3,30 @@ import SwiftData
 
 /// Polished settings screen — storage rules, pins, platforms, and about.
 struct SettingsView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(AppNavigationState.self) private var navigation
     @Environment(LocalSyncService.self) private var localSync
     @Query private var allVideos: [DownloadedVideo]
     @Query(filter: #Predicate<DownloadedVideo> { $0.isPinned })
     private var pinnedVideos: [DownloadedVideo]
 
+    @State private var libraryConfirm: LibraryCleanupConfirm?
+    @State private var storageEpoch = 0
+
     /// Actual bytes in the Videos folder (not stale SwiftData size metadata).
     private var totalBytesOnDisk: Int64 {
-        FileStorage.videosDirectoryByteCount()
+        _ = storageEpoch
+        return FileStorage.videosDirectoryByteCount()
     }
 
     private var missingFileCount: Int {
-        allVideos.filter { !$0.isFileAvailable }.count
+        _ = storageEpoch
+        return allVideos.filter { !$0.isFileAvailable }.count
+    }
+
+    private var filesOnDiskCount: Int {
+        _ = storageEpoch
+        return allVideos.filter(\.isFileAvailable).count
     }
 
     var body: some View {
@@ -33,6 +45,32 @@ struct SettingsView: View {
         .background(Color.primary.opacity(0.03))
         .navigationTitle("Settings")
         .toolbar { DetailDownloadToolbarItem() }
+        .confirmationDialog(
+            "Remove video files?",
+            isPresented: Binding(
+                get: { libraryConfirm == .removeFiles },
+                set: { if !$0 { libraryConfirm = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Remove Files", role: .destructive) { removeVideoFilesKeepingItems() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(LibraryCleanupConfirm.removeFiles.message)
+        }
+        .confirmationDialog(
+            "Delete entire library?",
+            isPresented: Binding(
+                get: { libraryConfirm == .deleteLibrary },
+                set: { if !$0 { libraryConfirm = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete Library", role: .destructive) { deleteEntireLibrary() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(LibraryCleanupConfirm.deleteLibrary.message)
+        }
     }
 
     private var headerCard: some View {
@@ -79,19 +117,57 @@ struct SettingsView: View {
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Button {
+                    libraryConfirm = .removeFiles
+                } label: {
+                    Label("Remove video files", systemImage: "internaldrive")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+                .disabled(filesOnDiskCount == 0)
+
+                Text("Frees space on this device. Titles stay in the library so you can redownload them later.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button {
+                    libraryConfirm = .deleteLibrary
+                } label: {
+                    Label("Delete entire library", systemImage: "trash")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
+                .disabled(allVideos.isEmpty)
+
+                Text("Removes every item and its video file from VidoX. Copies already in Photos or Files are kept.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
     private var nearbySyncCard: some View {
         settingsCard(title: "Nearby Sync", systemImage: "antenna.radiowaves.left.and.right") {
-            Toggle(
-                "Sync with nearby Apple devices",
-                isOn: Binding(
-                    get: { localSync.isEnabled },
-                    set: { localSync.isEnabled = $0 }
+            HStack(alignment: .center, spacing: 12) {
+                Text("Sync with nearby Apple devices")
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Toggle(
+                    "Sync with nearby Apple devices",
+                    isOn: Binding(
+                        get: { localSync.isEnabled },
+                        set: { localSync.isEnabled = $0 }
+                    )
                 )
-            )
-            .font(.subheadline.weight(.medium))
+                .toggleStyle(.switch)
+                .labelsHidden()
+            }
+            .accessibilityElement(children: .combine)
 
             Text("No iCloud. When this iPhone and your Mac (or another device) are nearby with VidoX open, libraries catch up — including downloads made while you were apart.")
                 .font(.footnote)
@@ -248,5 +324,41 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
         .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func removeVideoFilesKeepingItems() {
+        for video in allVideos where video.isFileAvailable {
+            FileStorage.removeFile(at: video.localFilePath)
+        }
+        storageEpoch += 1
+    }
+
+    private func deleteEntireLibrary() {
+        navigation.selectedVideoID = nil
+        for video in allVideos {
+            LocalSyncService.shared.noteDeleted(videoID: video.id)
+            FileStorage.removeFile(at: video.localFilePath)
+            if let thumb = video.thumbnailPath {
+                FileStorage.removeFile(at: thumb)
+            }
+            modelContext.delete(video)
+        }
+        try? modelContext.save()
+        FileStorage.removeAllMediaFiles()
+        storageEpoch += 1
+    }
+}
+
+private enum LibraryCleanupConfirm {
+    case removeFiles
+    case deleteLibrary
+
+    var message: String {
+        switch self {
+        case .removeFiles:
+            "Deletes downloaded video files to free space. Library items stay so you can redownload them later. Copies already in Photos or Files are kept."
+        case .deleteLibrary:
+            "Removes every library item and its video file from VidoX. Copies already in Photos or Files are kept."
+        }
     }
 }

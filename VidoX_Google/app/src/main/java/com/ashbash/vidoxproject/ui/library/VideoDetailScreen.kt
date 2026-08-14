@@ -50,10 +50,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -218,7 +220,8 @@ fun VideoDetailScreen(
             val actionPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 if (file.exists()) {
                     Button(
@@ -385,13 +388,21 @@ fun VideoDetailScreen(
 
 @Composable
 private fun EqualWidthButtonLabel(icon: ImageVector, text: String) {
-    Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-    Spacer(modifier = Modifier.width(4.dp))
-    Text(
-        text,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis
-    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+        Spacer(modifier = Modifier.width(5.dp))
+        Text(
+            text,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
 }
 
 /** Single ExoPlayer surface — inline or fullscreen, never both at once. */

@@ -69,7 +69,7 @@ class AndroidPageVideoExtractor : VideoExtracting {
     private suspend fun raceFacebookExtractors(pageURL: URL, sourceURL: URL): VideoMetadata? {
         val blocks = mutableListOf<suspend () -> VideoMetadata?>(
             { extractFacebookViaGetMyFB(pageURL, sourceURL) },
-            { extractFacebookViaSnapSave(pageURL, sourceURL) },
+            { extractViaSnapSave(pageURL, sourceURL, VideoPlatform.FACEBOOK) },
             {
                 try {
                     extractFacebookFromWebpage(pageURL, sourceURL)
@@ -234,11 +234,17 @@ class AndroidPageVideoExtractor : VideoExtracting {
         )
     }
 
-    private fun extractFacebookViaSnapSave(pageURL: URL, sourceURL: URL): VideoMetadata? {
+    private fun extractViaSnapSave(
+        pageURL: URL,
+        sourceURL: URL,
+        platform: VideoPlatform,
+        client: OkHttpClient = HttpClients.default
+    ): VideoMetadata? {
         return try {
             HttpClients.postForm(
                 "https://snapsave.app/action.php",
                 form = mapOf("url" to pageURL.toString()),
+                client = client,
                 userAgent = HttpClients.DESKTOP_UA,
                 headers = mapOf(
                     "Origin" to "https://snapsave.app",
@@ -248,14 +254,18 @@ class AndroidPageVideoExtractor : VideoExtracting {
                 if (response.code !in 200 until 300) return null
                 val script = response.bodyString() ?: return null
                 val decoded = decodeSnapSavePayload(script) ?: return null
-                metadataFromSnapSaveHTML(decoded, sourceURL)
+                metadataFromSnapSaveHTML(decoded, sourceURL, platform)
             }
         } catch (_: Exception) {
             null
         }
     }
 
-    private fun metadataFromSnapSaveHTML(html: String, sourceURL: URL): VideoMetadata? {
+    private fun metadataFromSnapSaveHTML(
+        html: String,
+        sourceURL: URL,
+        platform: VideoPlatform
+    ): VideoMetadata? {
         val formats = mutableListOf<VideoFormat>()
         val seen = mutableSetOf<String>()
 
@@ -275,7 +285,7 @@ class AndroidPageVideoExtractor : VideoExtracting {
             }
             if (!seen.add(mediaURL.toString())) continue
             formats += VideoFormat(
-                id = "fb-snapsave-${formats.size}",
+                id = "${platform.rawValue}-snapsave-${formats.size}",
                 label = label.ifEmpty { "Download" },
                 url = mediaURL,
                 fileExtension = "mp4",
@@ -299,7 +309,7 @@ class AndroidPageVideoExtractor : VideoExtracting {
                 if (mediaURL.path.contains("/thumb")) continue
                 if (!seen.add(mediaURL.toString())) continue
                 formats += VideoFormat(
-                    id = "fb-snapsave-${formats.size}",
+                    id = "${platform.rawValue}-snapsave-${formats.size}",
                     label = if (formats.isEmpty()) "Best available" else "Option ${formats.size + 1}",
                     url = mediaURL,
                     fileExtension = "mp4",
@@ -313,16 +323,16 @@ class AndroidPageVideoExtractor : VideoExtracting {
 
         val title = firstMatch(html, """alt=["']([^"']+)["']""")
             ?: metaContent(html, "og:title")
-            ?: "Facebook video"
+            ?: "${platform.displayName} video"
         val thumbnail = firstMatch(html, """src=["'](https://d\.rapidcdn\.app/thumb[^"']+)["']""")
             ?.let { runCatching { URL(it) }.getOrNull() }
             ?: metaContent(html, "og:image")?.let { runCatching { URL(it) }.getOrNull() }
 
         return VideoMetadata(
             title = htmlDecode(title),
-            author = "Facebook",
+            author = platform.displayName,
             thumbnailURL = thumbnail,
-            platform = VideoPlatform.FACEBOOK,
+            platform = platform,
             sourceURL = sourceURL,
             formats = formats.take(4),
             allowsRealDownload = true,
@@ -836,28 +846,40 @@ class AndroidPageVideoExtractor : VideoExtracting {
                 "Couldn’t read that Instagram link. Use a /reel/ or /p/ URL."
             )
 
-        // Public mirrors first — Instagram’s own APIs usually require login.
-        for (mirror in instagramMirrorURLs(shortcode)) {
-            try {
-                extractInstagramFromMirror(mirror, from, shortcode)?.let { return it }
-            } catch (_: Exception) {
-                // try next mirror
-            }
-        }
-
-        // Best-effort direct page scrape (often login-walled).
-        try {
-            val metadata = extractFromHTMLPage(from, VideoPlatform.INSTAGRAM)
-            if (metadata != null && metadata.formats.any { !it.isAudioOnly }) {
-                return metadata
-            }
-        } catch (_: Exception) {
-            // fall through
-        }
+        val canonical = URLNormalizer.instagramCanonicalURL(from)
+        raceInstagramExtractors(canonical, from, shortcode)?.let { return it }
 
         throw PageExtractionError.Network(
-            "Couldn’t resolve this Instagram video. It may be private, expired, or login-gated. Try a public reel/post."
+            "Couldn’t resolve this Instagram video. It may be private, age-restricted, or limited to certain audiences."
         )
+    }
+
+    /** SnapSave and public mirrors in parallel; return the first hit and cancel the rest. */
+    private suspend fun raceInstagramExtractors(
+        canonical: URL,
+        sourceURL: URL,
+        shortcode: String
+    ): VideoMetadata? {
+        val blocks = mutableListOf<suspend () -> VideoMetadata?>(
+            {
+                extractViaSnapSave(
+                    canonical,
+                    sourceURL,
+                    VideoPlatform.INSTAGRAM,
+                    client = HttpClients.medium
+                )
+            }
+        )
+        for (mirror in instagramMirrorURLs(shortcode)) {
+            blocks += {
+                try {
+                    extractInstagramFromMirror(mirror, sourceURL, shortcode)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        }
+        return raceFirst(*blocks.toTypedArray())
     }
 
     private fun instagramShortcode(url: URL): String? {
@@ -884,6 +906,7 @@ class AndroidPageVideoExtractor : VideoExtracting {
     ): VideoMetadata? {
         HttpClients.get(
             mirrorURL.toString(),
+            client = HttpClients.fast,
             userAgent = HttpClients.IPHONE_UA,
             headers = mapOf(
                 "Accept" to "text/html,application/xhtml+xml",

@@ -10,13 +10,6 @@ struct CompactTabShell: View {
 
         TabView(selection: $navigation.selectedDestination) {
             NavigationStack {
-                RecentDownloadsView()
-                    .toolbar { nearbySyncToolbarItem }
-            }
-            .tabItem { Label(AppDestination.recent.title, systemImage: AppDestination.recent.systemImage) }
-            .tag(AppDestination.recent)
-
-            NavigationStack {
                 VideoLibraryView()
                     .toolbar { nearbySyncToolbarItem }
             }
@@ -67,7 +60,7 @@ struct RegularSplitShell: View {
         NavigationSplitView {
             List(selection: $navigation.splitSelection) {
                 Section("Browse") {
-                    ForEach([AppDestination.recent, .library, .settings], id: \.self) { destination in
+                    ForEach([AppDestination.library, .settings], id: \.self) { destination in
                         Label(destination.title, systemImage: destination.systemImage)
                             .tag(SplitSidebarSelection.destination(destination))
                     }
@@ -136,8 +129,6 @@ struct RegularSplitShell: View {
     @ViewBuilder
     private var detailContent: some View {
         switch navigation.splitSelection {
-        case .destination(.recent):
-            RecentDownloadsView()
         case .destination(.library):
             VideoLibraryView()
         case .destination(.pins):
@@ -158,7 +149,7 @@ struct RegularSplitShell: View {
             ContentUnavailableView(
                 "VidoX",
                 systemImage: "arrow.down.circle",
-                description: Text("Choose Recent, Library, or a pinned video.")
+                description: Text("Choose Library or a pinned video.")
             )
         }
     }

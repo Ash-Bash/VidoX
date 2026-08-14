@@ -85,7 +85,7 @@ nonisolated struct IOSPageVideoExtractor: VideoExtracting {
                 await self.extractFacebookViaGetMyFB(pageURL: pageURL, sourceURL: sourceURL)
             }
             group.addTask {
-                await self.extractFacebookViaSnapSave(pageURL: pageURL, sourceURL: sourceURL)
+                await self.extractViaSnapSave(pageURL: pageURL, sourceURL: sourceURL, platform: .facebook)
             }
             group.addTask {
                 try? await self.extractFacebookFromWebpage(pageURL: pageURL, sourceURL: sourceURL)
@@ -259,12 +259,17 @@ nonisolated struct IOSPageVideoExtractor: VideoExtracting {
         )
     }
 
-    private func extractFacebookViaSnapSave(pageURL: URL, sourceURL: URL) async -> VideoMetadata? {
+    private func extractViaSnapSave(
+        pageURL: URL,
+        sourceURL: URL,
+        platform: VideoPlatform,
+        timeout: TimeInterval = 22
+    ) async -> VideoMetadata? {
         guard let endpoint = URL(string: "https://snapsave.app/action.php") else { return nil }
 
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = 22
+        request.timeoutInterval = timeout
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue("https://snapsave.app", forHTTPHeaderField: "Origin")
         request.setValue("https://snapsave.app/", forHTTPHeaderField: "Referer")
@@ -284,13 +289,17 @@ nonisolated struct IOSPageVideoExtractor: VideoExtracting {
                   let decoded = Self.decodeSnapSavePayload(script) else {
                 return nil
             }
-            return metadataFromSnapSaveHTML(decoded, sourceURL: sourceURL)
+            return metadataFromSnapSaveHTML(decoded, sourceURL: sourceURL, platform: platform)
         } catch {
             return nil
         }
     }
 
-    private func metadataFromSnapSaveHTML(_ html: String, sourceURL: URL) -> VideoMetadata? {
+    private func metadataFromSnapSaveHTML(
+        _ html: String,
+        sourceURL: URL,
+        platform: VideoPlatform
+    ) -> VideoMetadata? {
         var formats: [VideoFormat] = []
         var seen = Set<String>()
 
@@ -316,7 +325,7 @@ nonisolated struct IOSPageVideoExtractor: VideoExtracting {
                 guard !lower.contains("audio") else { return }
                 formats.append(
                     VideoFormat(
-                        id: "fb-snapsave-\(formats.count)",
+                        id: "\(platform.rawValue)-snapsave-\(formats.count)",
                         label: label.isEmpty ? "Download" : label,
                         url: mediaURL,
                         fileExtension: "mp4",
@@ -338,7 +347,7 @@ nonisolated struct IOSPageVideoExtractor: VideoExtracting {
                 if mediaURL.path.contains("/thumb") { return }
                 formats.append(
                     VideoFormat(
-                        id: "fb-snapsave-\(formats.count)",
+                        id: "\(platform.rawValue)-snapsave-\(formats.count)",
                         label: formats.isEmpty ? "Best available" : "Option \(formats.count + 1)",
                         url: mediaURL,
                         fileExtension: "mp4",
@@ -353,16 +362,16 @@ nonisolated struct IOSPageVideoExtractor: VideoExtracting {
 
         let title = Self.firstMatch(html, pattern: #"alt=["']([^"']+)["']"#)
             ?? Self.metaContent(html, property: "og:title")
-            ?? "Facebook video"
+            ?? "\(platform.displayName) video"
         let thumbnail = Self.firstMatch(html, pattern: #"src=["'](https://d\.rapidcdn\.app/thumb[^"']+)["']"#)
             .flatMap(URL.init(string:))
             ?? Self.metaContent(html, property: "og:image").flatMap(URL.init(string:))
 
         return VideoMetadata(
             title: title.htmlDecoded,
-            author: "Facebook",
+            author: platform.displayName,
             thumbnailURL: thumbnail,
-            platform: .facebook,
+            platform: platform,
             sourceURL: sourceURL,
             formats: Array(formats.prefix(4)),
             allowsRealDownload: true,
@@ -948,26 +957,53 @@ nonisolated struct IOSPageVideoExtractor: VideoExtracting {
             )
         }
 
-        // Public mirrors first — Instagram’s own APIs usually require login / TLS tricks on iOS.
-        for mirror in Self.instagramMirrorURLs(shortcode: shortcode) {
-            if let metadata = try? await extractInstagramFromMirror(
-                mirrorURL: mirror,
-                sourceURL: sourceURL,
-                shortcode: shortcode
-            ) {
-                return metadata
-            }
-        }
-
-        // Best-effort direct page scrape (often login-walled).
-        if let metadata = try? await extractFromHTMLPage(url: sourceURL, platform: .instagram),
-           metadata.formats.contains(where: { !$0.isAudioOnly }) {
+        let canonical = URLNormalizer.instagramCanonicalURL(from: sourceURL)
+        if let metadata = await raceInstagramExtractors(
+            canonical: canonical,
+            sourceURL: sourceURL,
+            shortcode: shortcode
+        ) {
             return metadata
         }
 
         throw PageExtractionError.network(
-            "Couldn’t resolve this Instagram video. It may be private, expired, or login-gated. Try a public reel/post, or download on Mac."
+            "Couldn’t resolve this Instagram video. It may be private, age-restricted, or limited to certain audiences."
         )
+    }
+
+    /// SnapSave and public mirrors in parallel; return the first hit and cancel the rest.
+    private func raceInstagramExtractors(
+        canonical: URL,
+        sourceURL: URL,
+        shortcode: String
+    ) async -> VideoMetadata? {
+        await withTaskGroup(of: VideoMetadata?.self) { group in
+            group.addTask {
+                await self.extractViaSnapSave(
+                    pageURL: canonical,
+                    sourceURL: sourceURL,
+                    platform: .instagram,
+                    timeout: 12
+                )
+            }
+            for mirror in Self.instagramMirrorURLs(shortcode: shortcode) {
+                group.addTask {
+                    try? await self.extractInstagramFromMirror(
+                        mirrorURL: mirror,
+                        sourceURL: sourceURL,
+                        shortcode: shortcode
+                    )
+                }
+            }
+
+            for await result in group {
+                if let result {
+                    group.cancelAll()
+                    return result
+                }
+            }
+            return nil
+        }
     }
 
     private static func instagramShortcode(from url: URL) -> String? {
@@ -1001,7 +1037,7 @@ nonisolated struct IOSPageVideoExtractor: VideoExtracting {
         shortcode: String
     ) async throws -> VideoMetadata? {
         var request = URLRequest(url: mirrorURL)
-        request.timeoutInterval = 20
+        request.timeoutInterval = 8
         request.setValue(
             "Mozilla/5.0 (iPhone; CPU iPhone OS 17_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.7 Mobile/15E148 Safari/604.1",
             forHTTPHeaderField: "User-Agent"
@@ -1009,7 +1045,7 @@ nonisolated struct IOSPageVideoExtractor: VideoExtracting {
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.fastSession.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<400).contains(http.statusCode),
               let html = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
             return nil

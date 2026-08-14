@@ -20,6 +20,10 @@ class ExperimentalSocialExtractor(
             if (it == VideoPlatform.UNKNOWN) VideoPlatform.WEB else it
         }
 
+        if (platform == VideoPlatform.INSTAGRAM) {
+            return pageExtractor.extract(from)
+        }
+
         if (prefersNative(platform)) {
             runCatching { pageExtractor.extract(from) }.getOrNull()?.let { return it }
         }

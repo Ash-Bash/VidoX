@@ -20,6 +20,7 @@ struct VidoXApp: App {
             RootView()
                 .environment(navigation)
                 .environment(localSync)
+                .focusedSceneValue(\.vidoxNavigation, navigation)
                 .sheet(isPresented: Bindable(navigation).isDownloaderPresented) {
                     DownloaderSheet()
                 }
@@ -30,6 +31,9 @@ struct VidoXApp: App {
                 }
         }
         .modelContainer(modelContainer)
+        .commands {
+            VidoxCommands()
+        }
         #if os(macOS)
         .defaultSize(width: 1100, height: 720)
         #endif

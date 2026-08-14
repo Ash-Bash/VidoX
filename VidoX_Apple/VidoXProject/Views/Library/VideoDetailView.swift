@@ -118,8 +118,11 @@ struct VideoDetailView: View {
                     Button {
                         prepareAndPlay()
                     } label: {
-                        Label(player == nil ? "Play" : "Replay", systemImage: "play.fill")
-                            .modifier(EqualWidthLabelModifier(enabled: fillsActionRow))
+                        DetailActionLabel(
+                            title: player == nil ? "Play" : "Replay",
+                            systemImage: "play.fill",
+                            fillsWidth: fillsActionRow
+                        )
                     }
                     .buttonStyle(.borderedProminent)
                     .frame(maxWidth: fillsActionRow ? .infinity : nil)
@@ -127,8 +130,11 @@ struct VideoDetailView: View {
                     Button {
                         presentFullScreen()
                     } label: {
-                        Label("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right")
-                            .modifier(EqualWidthLabelModifier(enabled: fillsActionRow))
+                        DetailActionLabel(
+                            title: "Full Screen",
+                            systemImage: "arrow.up.left.and.arrow.down.right",
+                            fillsWidth: fillsActionRow
+                        )
                     }
                     .buttonStyle(.bordered)
                     .frame(maxWidth: fillsActionRow ? .infinity : nil)
@@ -136,8 +142,11 @@ struct VideoDetailView: View {
                     Button {
                         Task { await redownload() }
                     } label: {
-                        Label("Redownload", systemImage: "arrow.clockwise.circle")
-                            .modifier(EqualWidthLabelModifier(enabled: fillsActionRow))
+                        DetailActionLabel(
+                            title: "Redownload",
+                            systemImage: "arrow.clockwise.circle",
+                            fillsWidth: fillsActionRow
+                        )
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(isRedownloading)
@@ -148,8 +157,11 @@ struct VideoDetailView: View {
                     video.togglePinned()
                     try? modelContext.save()
                 } label: {
-                    Label(video.isPinned ? "Unpin" : "Pin", systemImage: video.isPinned ? "pin.slash.fill" : "pin.fill")
-                        .modifier(EqualWidthLabelModifier(enabled: fillsActionRow))
+                    DetailActionLabel(
+                        title: video.isPinned ? "Unpin" : "Pin",
+                        systemImage: video.isPinned ? "pin.slash.fill" : "pin.fill",
+                        fillsWidth: fillsActionRow
+                    )
                 }
                 .buttonStyle(.bordered)
                 .frame(maxWidth: fillsActionRow ? .infinity : nil)
@@ -158,6 +170,7 @@ struct VideoDetailView: View {
                     Spacer()
                 }
             }
+            .controlSize(.regular)
         }
     }
 
@@ -395,18 +408,26 @@ struct VideoDetailView: View {
     }
 }
 
-private struct EqualWidthLabelModifier: ViewModifier {
-    let enabled: Bool
+private struct DetailActionLabel: View {
+    let title: String
+    let systemImage: String
+    var fillsWidth: Bool = false
 
-    func body(content: Content) -> some View {
-        if enabled {
-            content
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .font(labelFont)
+                .frame(width: 16, height: 16)
+            Text(title)
+                .font(labelFont)
                 .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .frame(maxWidth: .infinity)
-        } else {
-            content
         }
+        .frame(maxWidth: fillsWidth ? .infinity : nil)
+        .frame(minHeight: 18)
+    }
+
+    private var labelFont: Font {
+        fillsWidth ? .caption.weight(.semibold) : .subheadline.weight(.semibold)
     }
 }
 

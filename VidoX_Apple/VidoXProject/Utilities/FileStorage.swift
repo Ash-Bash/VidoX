@@ -119,6 +119,12 @@ enum FileStorage {
         fileSize(at: resolvedURL(forStoredPath: storedPath))
     }
 
+    /// Deletes every file in Videos and Thumbnails (library records are unchanged).
+    static func removeAllMediaFiles() {
+        removeContents(of: videosDirectory)
+        removeContents(of: thumbnailsDirectory)
+    }
+
     /// Bytes actually present in the Videos directory (not SwiftData metadata).
     static func videosDirectoryByteCount() -> Int64 {
         let directory = videosDirectory
@@ -166,6 +172,16 @@ enum FileStorage {
             return name.hasSuffix("-\(suffix)") || name.hasSuffix(suffix)
         }
         return matches.count == 1 ? matches[0] : nil
+    }
+
+    private static func removeContents(of directory: URL) {
+        guard let items = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ) else { return }
+        for item in items {
+            try? FileManager.default.removeItem(at: item)
+        }
     }
 
     private static func ensureDirectoryExists(at url: URL) {

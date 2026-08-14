@@ -26,7 +26,11 @@ class YtDlpExtractor(private val appContext: Context) : VideoExtracting {
             listOf("--extractor-args" to "youtube:player_client=android")
         } else emptyList()
 
-        extractGeneric(from, platform, extra)
+        extractGeneric(
+            if (platform == VideoPlatform.INSTAGRAM) URLNormalizer.instagramCanonicalURL(from) else from,
+            platform,
+            extra
+        )
     }
 
     private suspend fun extractFacebook(url: URL): VideoMetadata {

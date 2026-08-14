@@ -13,13 +13,18 @@ struct VideoLibraryView: View {
     private var videos: [DownloadedVideo]
 
     @AppStorage("library.layoutMode") private var layoutModeRaw = LibraryLayoutMode.grid.rawValue
+    @AppStorage("library.sortMode") private var sortModeRaw = LibrarySortMode.newest.rawValue
     @State private var searchText = ""
-    @State private var sortNewestFirst = true
     @State private var selectedVideoID: UUID?
 
     private var layoutMode: LibraryLayoutMode {
         get { LibraryLayoutMode(rawValue: layoutModeRaw) ?? .grid }
         nonmutating set { layoutModeRaw = newValue.rawValue }
+    }
+
+    private var sortMode: LibrarySortMode {
+        get { LibrarySortMode(rawValue: sortModeRaw) ?? .newest }
+        nonmutating set { sortModeRaw = newValue.rawValue }
     }
 
     private var filteredVideos: [DownloadedVideo] {
@@ -32,9 +37,27 @@ struct VideoLibraryView: View {
                     || ($0.author?.localizedCaseInsensitiveContains(searchText) ?? false)
             }
         }
-        return sortNewestFirst
-            ? base
-            : base.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        return Self.sortedVideos(base, by: sortMode)
+    }
+
+    private static func sortedVideos(_ videos: [DownloadedVideo], by mode: LibrarySortMode) -> [DownloadedVideo] {
+        switch mode {
+        case .newest:
+            videos
+        case .title:
+            videos.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        case .size:
+            videos.sorted {
+                if $0.fileSize != $1.fileSize { return $0.fileSize > $1.fileSize }
+                return $0.downloadedAt > $1.downloadedAt
+            }
+        case .site:
+            videos.sorted {
+                let site = $0.platform.displayName.localizedCaseInsensitiveCompare($1.platform.displayName)
+                if site != .orderedSame { return site == .orderedAscending }
+                return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+            }
+        }
     }
 
     private var gridColumns: [GridItem] {
@@ -82,12 +105,19 @@ struct VideoLibraryView: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    Button(sortNewestFirst ? "Sort by Title" : "Sort by Newest") {
-                        sortNewestFirst.toggle()
+                    Picker(selection: $sortModeRaw) {
+                        ForEach(LibrarySortMode.allCases) { mode in
+                            Text(mode.menuTitle).tag(mode.rawValue)
+                        }
+                    } label: {
+                        EmptyView()
                     }
+                    .pickerStyle(.inline)
                 } label: {
                     Image(systemName: "arrow.up.arrow.down")
                 }
+                .help("Sort library")
+                .accessibilityLabel("Sort library")
             }
             DetailDownloadToolbarItem()
         }

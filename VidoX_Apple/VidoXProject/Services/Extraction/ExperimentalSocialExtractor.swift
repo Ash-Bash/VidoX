@@ -16,6 +16,11 @@ nonisolated struct ExperimentalSocialExtractor: VideoExtracting {
         let detected = VideoPlatform.detect(from: url.absoluteString)
         let platform: VideoPlatform = detected == .unknown ? .web : detected
 
+        // Instagram’s official extractor is login/audience-gated; resolve natively (mirrors + SnapSave).
+        if platform == .instagram {
+            return try await IOSPageVideoExtractor().extract(from: url)
+        }
+
         // Prefer native resolvers for sites yt-dlp often fails on (login walls / challenges),
         // then fall back to yt-dlp. On success this also keeps iOS/macOS behaviour aligned.
         if Self.prefersNativeExtractor(platform),

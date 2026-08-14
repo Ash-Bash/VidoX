@@ -75,6 +75,20 @@ class FileStorage(context: Context) {
         File(thumbnailsDirectory, File(storedPath).name).delete()
     }
 
+    /** Deletes the video file and generated frame cache; keeps any saved poster thumbnail. */
+    fun removeVideoMediaKeepingRecord(storedPath: String) {
+        val videoFile = resolvedFile(storedPath)
+        removeThumbnailCacheForVideo(videoFile)
+        videoFile.delete()
+    }
+
+    fun removeAllMediaFiles() {
+        videosDirectory.listFiles()?.forEach { it.deleteRecursively() }
+        thumbnailsDirectory.listFiles()?.forEach { it.deleteRecursively() }
+        videosDirectory.mkdirs()
+        thumbnailsDirectory.mkdirs()
+    }
+
     fun fileSize(file: File): Long = if (file.exists()) file.length() else 0L
 
     fun fileSize(storedPath: String): Long = fileSize(resolvedFile(storedPath))

@@ -86,7 +86,7 @@ enum VideoPlatform: String, CaseIterable, Codable, Identifiable, Sendable {
         let hosts: [(VideoPlatform, [String])] = [
             (.youtube, ["youtube.com", "youtu.be", "youtube-nocookie.com", "m.youtube.com"]),
             (.twitter, ["twitter.com", "x.com", "t.co", "mobile.twitter.com"]),
-            (.instagram, ["instagram.com", "instagr.am"]),
+            (.instagram, ["instagram.com", "instagr.am", "kkinstagram.com"]),
             (.facebook, [
                 "facebook.com", "fb.watch", "fb.com", "fb.me",
                 "m.facebook.com", "web.facebook.com", "mbasic.facebook.com"

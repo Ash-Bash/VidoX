@@ -54,6 +54,18 @@ object URLNormalizer {
         }
     }
 
+    /** Rewrites kkinstagram hosts to instagram.com for extractors that need official URLs. */
+    fun instagramCanonicalURL(from: URL): URL {
+        val host = from.host?.lowercase() ?: return from
+        if (host != "kkinstagram.com" && !host.endsWith(".kkinstagram.com")) return from
+        val rebuilt = buildString {
+            append("https://www.instagram.com")
+            append(from.path ?: "")
+            if (!from.query.isNullOrEmpty()) append('?').append(from.query)
+        }
+        return runCatching { URL(rebuilt) }.getOrDefault(from)
+    }
+
     private fun canonicalizeHost(host: String): String = when (host) {
         "m.facebook.com", "mbasic.facebook.com", "web.facebook.com", "mobile.facebook.com" ->
             "www.facebook.com"

@@ -18,19 +18,28 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,19 +56,27 @@ import com.ashbash.vidoxproject.VidoXApp
 import com.ashbash.vidoxproject.models.VideoPlatform
 import com.ashbash.vidoxproject.ui.shared.LargeTitleHeader
 import com.ashbash.vidoxproject.util.FeatureFlags
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     onOpenDownloader: () -> Unit,
-    showDownloadButton: Boolean = true
+    showDownloadButton: Boolean = true,
+    onLibraryWiped: () -> Unit = {}
 ) {
     val app = VidoXApp.instance
+    val scope = rememberCoroutineScope()
     val videos by app.repository.observeAll().collectAsStateWithLifecycle(initialValue = emptyList())
     val pinnedCount by app.repository.observePinnedCount().collectAsStateWithLifecycle(initialValue = 0)
-    val totalBytes = remember(videos) { app.fileStorage.videosDirectoryByteCount() }
-    val missing = remember(videos) {
+    var storageRevision by remember { mutableIntStateOf(0) }
+    var confirmAction by remember { mutableStateOf<LibraryCleanupConfirm?>(null) }
+    val totalBytes = remember(videos, storageRevision) { app.fileStorage.videosDirectoryByteCount() }
+    val missing = remember(videos, storageRevision) {
         videos.count { !app.fileStorage.fileExists(it.localFilePath) }
+    }
+    val filesOnDisk = remember(videos, storageRevision) {
+        videos.count { app.fileStorage.fileExists(it.localFilePath) }
     }
 
     Column(
@@ -147,6 +164,45 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.tertiary
                     )
                 }
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = { confirmAction = LibraryCleanupConfirm.RemoveFiles },
+                    enabled = filesOnDisk > 0,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.DeleteSweep, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Remove video files")
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    "Frees space on this device. Titles stay in the library so you can redownload them later.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = { confirmAction = LibraryCleanupConfirm.DeleteLibrary },
+                    enabled = videos.isNotEmpty(),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        Icons.Default.DeleteForever,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "Delete entire library",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    "Removes every item and its video file from VidoX. Copies already in Gallery or Files are kept.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             SettingsCard(title = "Storage", icon = Icons.Default.Storage) {
@@ -274,6 +330,51 @@ fun SettingsScreen(
             }
         }
     }
+
+    confirmAction?.let { action ->
+        AlertDialog(
+            onDismissRequest = { confirmAction = null },
+            title = {
+                Text(
+                    when (action) {
+                        LibraryCleanupConfirm.RemoveFiles -> "Remove video files?"
+                        LibraryCleanupConfirm.DeleteLibrary -> "Delete entire library?"
+                    }
+                )
+            },
+            text = { Text(action.message) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val selected = action
+                    confirmAction = null
+                    scope.launch {
+                        when (selected) {
+                            LibraryCleanupConfirm.RemoveFiles -> {
+                                app.repository.removeAllVideoFilesKeepingItems()
+                                storageRevision += 1
+                            }
+                            LibraryCleanupConfirm.DeleteLibrary -> {
+                                app.repository.deleteAllItemsAndFiles()
+                                onLibraryWiped()
+                                storageRevision += 1
+                            }
+                        }
+                    }
+                }) {
+                    Text(
+                        when (action) {
+                            LibraryCleanupConfirm.RemoveFiles -> "Remove Files"
+                            LibraryCleanupConfirm.DeleteLibrary -> "Delete Library"
+                        },
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmAction = null }) { Text("Cancel") }
+            }
+        )
+    }
 }
 
 @Composable
@@ -347,4 +448,17 @@ private fun MetricTile(
             overflow = TextOverflow.Ellipsis
         )
     }
+}
+
+private enum class LibraryCleanupConfirm {
+    RemoveFiles,
+    DeleteLibrary;
+
+    val message: String
+        get() = when (this) {
+            RemoveFiles ->
+                "Deletes downloaded video files to free space. Library items stay so you can redownload them later. Copies already in Gallery or Files are kept."
+            DeleteLibrary ->
+                "Removes every library item and its video file from VidoX. Copies already in Gallery or Files are kept."
+        }
 }

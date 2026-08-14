@@ -73,7 +73,7 @@ enum class VideoPlatform(val rawValue: String) {
                 YOUTUBE to listOf("youtube.com", "youtu.be", "youtube-nocookie.com", "m.youtube.com"),
                 // Match host labels only — bare "t.co" must not match inside "reddit.com".
                 TWITTER to listOf("twitter.com", "x.com", "t.co", "mobile.twitter.com"),
-                INSTAGRAM to listOf("instagram.com", "instagr.am"),
+                INSTAGRAM to listOf("instagram.com", "instagr.am", "kkinstagram.com"),
                 FACEBOOK to listOf(
                     "facebook.com", "fb.watch", "fb.com", "fb.me",
                     "m.facebook.com", "web.facebook.com", "mbasic.facebook.com"

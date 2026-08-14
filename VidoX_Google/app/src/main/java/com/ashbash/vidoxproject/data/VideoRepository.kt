@@ -1,7 +1,9 @@
 package com.ashbash.vidoxproject.data
 
 import com.ashbash.vidoxproject.util.FileStorage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 
 class VideoRepository(
     private val dao: DownloadedVideoDao,
@@ -22,6 +24,25 @@ class VideoRepository(
         fileStorage.removeFile(video.localFilePath)
         video.thumbnailPath?.let { fileStorage.removeFile(it) }
         dao.delete(video)
+    }
+
+    /** Deletes downloaded video files to free space. Library items stay for later redownload. */
+    suspend fun removeAllVideoFilesKeepingItems() = withContext(Dispatchers.IO) {
+        dao.getAll().forEach { video ->
+            fileStorage.removeVideoMediaKeepingRecord(video.localFilePath)
+        }
+    }
+
+    /** Deletes every library item and its files from VidoX storage. */
+    suspend fun deleteAllItemsAndFiles() = withContext(Dispatchers.IO) {
+        dao.getAll().forEach { video ->
+            val videoFile = fileStorage.resolvedFile(video.localFilePath)
+            fileStorage.removeThumbnailCacheForVideo(videoFile)
+            fileStorage.removeFile(video.localFilePath)
+            video.thumbnailPath?.let { fileStorage.removeFile(it) }
+        }
+        dao.deleteAll()
+        fileStorage.removeAllMediaFiles()
     }
 
     suspend fun togglePinned(video: DownloadedVideo) {
