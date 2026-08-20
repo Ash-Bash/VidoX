@@ -8,6 +8,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -32,9 +33,10 @@ class AndroidPageVideoExtractor : VideoExtracting {
 
         if (platform == VideoPlatform.YOUTUBE) {
             val videoID = youtubeVideoID(from)
-            if (videoID != null) {
-                return@withContext extractYouTube(videoID, from)
-            }
+                ?: throw PageExtractionError.Network(
+                    "Couldn’t read that YouTube link. Try a watch, Shorts, or youtu.be URL."
+                )
+            return@withContext extractYouTube(videoID, from)
         }
 
         if (platform == VideoPlatform.INSTAGRAM) {
@@ -1008,33 +1010,67 @@ class AndroidPageVideoExtractor : VideoExtracting {
 
     // region YouTube
 
-    private suspend fun extractYouTube(videoID: String, sourceURL: URL): VideoMetadata {
-        // Race ANDROID + IOS Innertube — take the first usable result.
-        raceYouTubeInnertube(videoID, sourceURL)?.let { return it }
-
-        extractYouTubeViaPiped(videoID, sourceURL)?.let { return it }
-
-        throw PageExtractionError.Network(
-            "Couldn’t resolve this YouTube video quickly. Try again."
-        )
-    }
-
-    private suspend fun raceYouTubeInnertube(videoID: String, sourceURL: URL): VideoMetadata? {
-        val blocks = youtubeClientProfiles.map { profile ->
-            suspend {
-                try {
-                    val json = fetchYouTubePlayerJSON(videoID, profile)
-                    if (json == null) null else metadataFromYouTubePlayerJSON(json, sourceURL)
-                } catch (_: Exception) {
-                    null
+    private suspend fun extractYouTube(videoID: String, sourceURL: URL): VideoMetadata =
+        coroutineScope {
+            val winner = kotlinx.coroutines.CompletableDeferred<VideoMetadata>()
+            val jobs = buildList {
+                add(async { raceYouTubeInnertube(videoID, sourceURL) })
+                pipedInstances.forEach { base ->
+                    add(async { extractYouTubeViaPiped(videoID, sourceURL, listOf(base)) })
                 }
             }
+            jobs.forEach { job ->
+                launch {
+                    job.await()?.let { winner.complete(it) }
+                }
+            }
+            launch {
+                jobs.forEach { it.join() }
+                if (!winner.isCompleted) {
+                    winner.completeExceptionally(
+                        PageExtractionError.Network(
+                            "Couldn’t resolve this YouTube video quickly. Try again."
+                        )
+                    )
+                }
+            }
+            try {
+                winner.await()
+            } finally {
+                jobs.forEach { it.cancel() }
+            }
         }
-        return raceFirst(*blocks.toTypedArray())
-    }
 
-    private fun extractYouTubeViaPiped(videoID: String, sourceURL: URL): VideoMetadata? {
-        for (base in pipedInstances) {
+    private suspend fun raceYouTubeInnertube(videoID: String, sourceURL: URL): VideoMetadata? =
+        coroutineScope {
+            val winner = kotlinx.coroutines.CompletableDeferred<VideoMetadata?>()
+            val jobs = youtubeClientProfiles.map { profile ->
+                async {
+                    val metadata = try {
+                        val json = fetchYouTubePlayerJSON(videoID, profile)
+                        json?.let { metadataFromYouTubePlayerJSON(it, sourceURL) }
+                            ?.takeIf { it.formats.isNotEmpty() }
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (metadata != null) winner.complete(metadata)
+                }
+            }
+            launch {
+                jobs.forEach { it.join() }
+                winner.complete(null)
+            }
+            val result = winner.await()
+            jobs.forEach { it.cancel() }
+            result
+        }
+
+    private fun extractYouTubeViaPiped(
+        videoID: String,
+        sourceURL: URL,
+        instances: List<String> = pipedInstances
+    ): VideoMetadata? {
+        for (base in instances) {
             val endpoint = "$base/streams/$videoID"
             try {
                 HttpClients.get(
@@ -1187,33 +1223,47 @@ class AndroidPageVideoExtractor : VideoExtracting {
 
     private val youtubeClientProfiles = listOf(
         YouTubeClientProfile(
-            name = "ANDROID",
-            version = "20.10.38",
+            name = "ANDROID_VR",
+            version = "1.65.10",
             apiKey = "AIzaSyA8eiZmM1FaDVzRv56ghNOtmvq96PukvtE",
-            userAgent = "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip",
-            clientNameHeader = "3",
+            userAgent = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+            clientNameHeader = "28",
             extraClientFields = mapOf(
-                "androidSdkVersion" to 34,
+                "androidSdkVersion" to 32,
+                "deviceMake" to "Oculus",
+                "deviceModel" to "Quest 3",
                 "osName" to "Android",
-                "osVersion" to "14"
+                "osVersion" to "12L"
             )
         ),
         YouTubeClientProfile(
+            name = "TVHTML5",
+            version = "7.20260114.12.00",
+            apiKey = "AIzaSyDCU8hBzN1GPtDKJ1ynLyFnw4CD4LYpkUI",
+            userAgent = "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold (unlike Gecko), Unknown_TV_Unknown_0/Unknown (Unknown, Unknown)",
+            clientNameHeader = "7",
+            extraClientFields = emptyMap()
+        ),
+        YouTubeClientProfile(
             name = "IOS",
-            version = "20.10.4",
+            version = "20.50.3",
             apiKey = "AIzaSyB-63vPrdThhKuerbB2N_a6SpUGSj3JdxE",
-            userAgent = "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 17_7 like Mac OS X;)",
+            userAgent = "com.google.ios.youtube/20.50.3 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)",
             clientNameHeader = "5",
             extraClientFields = mapOf(
                 "deviceMake" to "Apple",
                 "deviceModel" to "iPhone16,2",
                 "osName" to "iPhone",
-                "osVersion" to "17.7.0.21H16"
+                "osVersion" to "18.2.0.22C152"
             )
         )
     )
 
-    private val pipedInstances = listOf("https://api.piped.private.coffee")
+    private val pipedInstances = listOf(
+        "https://api.piped.private.coffee",
+        "https://pipedapi.kavin.rocks",
+        "https://pipedapi.adminforge.de"
+    )
 
     private fun fetchYouTubePlayerJSON(videoID: String, profile: YouTubeClientProfile): JSONObject? {
         val endpoint =
@@ -1287,43 +1337,36 @@ class AndroidPageVideoExtractor : VideoExtracting {
         val formats = mutableListOf<VideoFormat>()
         val seenHeights = mutableSetOf<Int>()
 
-        val progressiveList = jsonArrayToList(progressive)
-            .sortedByDescending { it.optInt("height", 0) }
+        if (hls != null) {
+            formats.add(
+                0,
+                VideoFormat(
+                    id = "yt-hls",
+                    label = "Best (stream)",
+                    url = hls,
+                    fileExtension = "mp4",
+                    quality = seenHeights.maxOrNull() ?: 1080,
+                    isAudioOnly = false,
+                    isHlsStream = true
+                )
+            )
+        }
 
-        for (entry in progressiveList) {
+        for (entry in jsonArrayToList(progressive)) {
+            val itag = entry.optInt("itag", -1)
             val mediaURL = mediaURLFromEntry(entry) ?: continue
+            val mime = entry.optString("mimeType").ifEmpty { "video/mp4" }
             val height = entry.optInt("height", 0).takeIf { it > 0 }
-            if (height != null) {
-                if (height in seenHeights) continue
-                seenHeights += height
-            }
-            val mime = entry.optString("mimeType")
-            val itag = entry.optInt("itag", formats.size)
+            if (height != null) seenHeights += height
             formats += VideoFormat(
-                id = "yt-$itag",
+                id = "yt-prog-$itag",
                 label = height?.let { "${it}p" } ?: "Video",
                 url = mediaURL,
                 fileExtension = if (mime.contains("webm")) "webm" else "mp4",
                 quality = height,
                 isAudioOnly = false
             )
-            if (formats.size >= 6) break
-        }
-
-        if (hls != null) {
-            val insertAt = if (formats.isEmpty()) 0 else minOf(1, formats.size)
-            formats.add(
-                insertAt,
-                VideoFormat(
-                    id = "yt-hls",
-                    label = "Best (stream)",
-                    url = hls,
-                    fileExtension = "mp4",
-                    quality = seenHeights.maxOrNull(),
-                    isAudioOnly = false,
-                    isHlsStream = true
-                )
-            )
+            if (formats.count { !it.isHlsStream && !it.isAudioOnly } >= 4) break
         }
 
         // Only fall back to adaptive video-only when nothing muxed/HLS exists.
@@ -1571,32 +1614,75 @@ class AndroidPageVideoExtractor : VideoExtracting {
     companion object {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
-        /** Extract an 11-char YouTube id from watch / youtu.be / shorts / embed URLs. */
-        fun youtubeVideoID(from: URL): String? {
+        /** Extract an 11-char YouTube id from watch / youtu.be / shorts / embed / share URLs. */
+        fun youtubeVideoID(from: URL): String? = parseYouTubeVideoID(from, allowNested = true)
+
+        private val youtubeIDRegex = Regex("^[A-Za-z0-9_-]{11}$")
+        private val youtubeIDInURL = Regex(
+            """(?:v=|/embed/|/shorts/|/live/|/e/|youtu\.be/)([A-Za-z0-9_-]{11})""",
+            RegexOption.IGNORE_CASE
+        )
+
+        private fun validYouTubeID(raw: String?): String? {
+            var value = raw?.trim().orEmpty()
+            if (value.isEmpty()) return null
+            value = value.substringBefore('?').substringBefore('&').substringBefore('#').substringBefore('/')
+            val id = value.take(11)
+            return id.takeIf { youtubeIDRegex.matches(it) }
+        }
+
+        private fun parseYouTubeVideoID(from: URL, allowNested: Boolean): String? {
+            val path = from.path.lowercase()
+            if (allowNested && (path.contains("attribution_link") || path.contains("redirect"))) {
+                val query = from.query
+                if (!query.isNullOrEmpty()) {
+                    for (item in query.split('&')) {
+                        val parts = item.split('=', limit = 2)
+                        if (parts.getOrNull(0) !in setOf("u", "q")) continue
+                        val decoded = URLDecoder.decode(parts.getOrNull(1).orEmpty(), "UTF-8")
+                        val nestedString = when {
+                            decoded.startsWith("http") -> decoded
+                            decoded.startsWith("/") -> "https://www.youtube.com$decoded"
+                            else -> null
+                        } ?: continue
+                        val nested = runCatching { URL(nestedString) }.getOrNull() ?: continue
+                        parseYouTubeVideoID(nested, allowNested = false)?.let { return it }
+                    }
+                }
+            }
+
             val host = from.host?.lowercase().orEmpty()
             if (host.contains("youtu.be")) {
                 val id = from.path.split('/').firstOrNull { it.isNotEmpty() }
-                    ?.substringBefore('?')
-                    .orEmpty()
-                return if (id.length >= 11) id.take(11) else null
+                validYouTubeID(id)?.let { return it }
             }
 
             val query = from.query
             if (!query.isNullOrEmpty()) {
-                val v = query.split('&')
-                    .map { it.split('=', limit = 2) }
-                    .firstOrNull { it[0] == "v" }
-                    ?.getOrNull(1)
-                    ?.let { URLDecoder.decode(it, "UTF-8") }
-                if (v != null && v.length >= 11) return v.take(11)
+                val params = query.split('&').map { it.split('=', limit = 2) }
+                for (name in listOf("v", "vi", "video_id")) {
+                    val value = params.firstOrNull { it.getOrNull(0) == name }?.getOrNull(1)
+                        ?.let { URLDecoder.decode(it, "UTF-8") }
+                    validYouTubeID(value)?.let { return it }
+                }
+            }
+
+            from.ref?.split('&')?.forEach { item ->
+                val pair = item.split('=', limit = 2)
+                if (pair.getOrNull(0) == "v") {
+                    validYouTubeID(pair.getOrNull(1))?.let { return it }
+                }
             }
 
             val parts = from.path.split('/').filter { it.isNotEmpty() }
-            val embedIndex = parts.indexOfFirst { it in setOf("embed", "shorts", "live", "v") }
+            val markers = setOf("embed", "shorts", "live", "v", "e")
+            val embedIndex = parts.indexOfFirst { it.lowercase() in markers }
             if (embedIndex >= 0 && embedIndex + 1 < parts.size) {
-                return parts[embedIndex + 1].take(11)
+                validYouTubeID(parts[embedIndex + 1])?.let { return it }
             }
-            return null
+
+            return youtubeIDInURL.find(from.toString())?.groupValues?.getOrNull(1)
+                ?.let { validYouTubeID(it) }
         }
 
         fun qualityHint(from: String): Int? {

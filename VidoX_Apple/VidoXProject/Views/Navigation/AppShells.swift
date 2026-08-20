@@ -51,6 +51,7 @@ struct CompactTabShell: View {
 struct RegularSplitShell: View {
     @Environment(AppNavigationState.self) private var navigation
     @Environment(\.modelContext) private var modelContext
+    @Query private var allVideos: [DownloadedVideo]
     @Query(filter: #Predicate<DownloadedVideo> { $0.isPinned }, sort: \DownloadedVideo.pinnedAt, order: .reverse)
     private var pinnedVideos: [DownloadedVideo]
 
@@ -58,50 +59,60 @@ struct RegularSplitShell: View {
         @Bindable var navigation = navigation
 
         NavigationSplitView {
-            List(selection: $navigation.splitSelection) {
-                Section("Browse") {
-                    ForEach([AppDestination.library, .settings], id: \.self) { destination in
-                        Label(destination.title, systemImage: destination.systemImage)
-                            .tag(SplitSidebarSelection.destination(destination))
-                    }
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    sidebarActionCard(
+                        .library,
+                        count: allVideos.count
+                    )
+                    sidebarActionCard(.settings)
                 }
+                .padding(.horizontal, 8)
+                .padding(.top, 2)
+                .padding(.bottom, 6)
 
-                Section {
-                    if pinnedVideos.isEmpty {
-                        Text("Pin videos from Library")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(pinnedVideos, id: \.id) { video in
-                            HStack(spacing: 10) {
-                                VideoThumbnailView(url: video.fileURL, cornerRadius: 6)
-                                    .frame(width: 36, height: 36)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(video.title)
-                                        .lineLimit(1)
-                                    Text(video.platform.displayName)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .tag(SplitSidebarSelection.pinnedVideo(video.id))
-                            .contextMenu {
-                                Button {
-                                    let id = video.id
-                                    video.togglePinned()
-                                    try? modelContext.save()
-                                    if case .pinnedVideo(let selected) = navigation.splitSelection, selected == id {
-                                        navigation.splitSelection = .destination(.library)
+                List(selection: pinnedSidebarSelection) {
+                    Section {
+                        if pinnedVideos.isEmpty {
+                            Text("Pin videos from Library")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(pinnedVideos, id: \.id) { video in
+                                HStack(spacing: 10) {
+                                    VideoThumbnailView(url: video.fileURL, cornerRadius: 6)
+                                        .frame(width: 36, height: 36)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(video.title)
+                                            .lineLimit(1)
+                                        Text(video.platform.displayName)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
                                     }
-                                } label: {
-                                    Label("Unpin", systemImage: "pin.slash")
+                                }
+                                .tag(SplitSidebarSelection.pinnedVideo(video.id))
+                                .contextMenu {
+                                    Button {
+                                        let id = video.id
+                                        video.togglePinned()
+                                        try? modelContext.save()
+                                        if case .pinnedVideo(let selected) = navigation.splitSelection, selected == id {
+                                            navigation.splitSelection = .destination(.library)
+                                        }
+                                    } label: {
+                                        Label("Unpin", systemImage: "pin.slash")
+                                    }
                                 }
                             }
                         }
+                    } header: {
+                        Label("Pinned", systemImage: "pin.fill")
                     }
-                } header: {
-                    Label("Pinned", systemImage: "pin.fill")
                 }
+                .listStyle(.sidebar)
+                #if os(iOS) || os(visionOS)
+                .listSectionSpacing(8)
+                #endif
             }
             .navigationTitle("VidoX")
             .toolbar {
@@ -124,6 +135,61 @@ struct RegularSplitShell: View {
                 navigation.selectedDestination = destination
             }
         }
+    }
+
+    /// List selection only tracks pinned rows — browse cards set destination themselves.
+    private var pinnedSidebarSelection: Binding<SplitSidebarSelection?> {
+        Binding(
+            get: {
+                if case .pinnedVideo = navigation.splitSelection {
+                    navigation.splitSelection
+                } else {
+                    nil
+                }
+            },
+            set: { newValue in
+                if let newValue {
+                    navigation.splitSelection = newValue
+                }
+            }
+        )
+    }
+
+    private func sidebarActionCard(_ destination: AppDestination, count: Int? = nil) -> some View {
+        let selected = navigation.splitSelection == .destination(destination)
+        return Button {
+            navigation.go(to: destination)
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top) {
+                    Image(systemName: destination.systemImage)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 26, height: 26)
+                        .background(destination.accentColor, in: Circle())
+                    Spacer(minLength: 2)
+                    if let count {
+                        Text("\(count)")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+                Text(destination.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+            .background(
+                selected
+                    ? Color.accentColor.opacity(0.22)
+                    : Color.primary.opacity(0.08),
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     @ViewBuilder

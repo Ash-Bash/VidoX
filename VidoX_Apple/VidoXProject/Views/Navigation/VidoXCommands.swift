@@ -54,6 +54,15 @@ struct VidoxCommands: Commands {
             .keyboardShortcut("3", modifiers: .command)
         }
 
+        CommandGroup(replacing: .help) {
+            Button("VidoX Welcome Guide") {
+                navigation?.showOnboarding()
+            }
+            Button("What’s New in VidoX") {
+                navigation?.showWhatsNew()
+            }
+        }
+
         CommandMenu("Sync") {
             Toggle("Sync with Nearby Apple Devices", isOn: nearbySyncBinding)
         }

@@ -11,9 +11,11 @@ import com.ashbash.vidoxproject.models.VideoPlatform
 import com.ashbash.vidoxproject.services.download.DownloadError
 import com.ashbash.vidoxproject.services.download.OkHttpVideoDownloader
 import com.ashbash.vidoxproject.services.download.YtDlpVideoDownloader
+import com.ashbash.vidoxproject.services.download.userFacingTransferMessage
 import com.ashbash.vidoxproject.services.extraction.ExtractionError
 import com.ashbash.vidoxproject.services.extraction.ExtractionRouter
 import com.ashbash.vidoxproject.services.extraction.PageExtractionError
+import com.ashbash.vidoxproject.services.extraction.YOUTUBE_FORMAT_SELECTOR
 import com.ashbash.vidoxproject.util.URLNormalizer
 import com.ashbash.vidoxproject.util.VideoThumbnailLoader
 import kotlinx.coroutines.Job
@@ -105,6 +107,7 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
                     VideoPlatform.FACEBOOK, VideoPlatform.REDDIT,
                     VideoPlatform.TWITCH, VideoPlatform.TWITTER -> 28_000L
                     VideoPlatform.INSTAGRAM, VideoPlatform.TIKTOK, VideoPlatform.RUMBLE -> 22_000L
+                    VideoPlatform.YOUTUBE -> 12_000L
                     else -> 15_000L
                 }
 
@@ -130,7 +133,7 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
                 _state.update {
                     it.copy(
                         isExtracting = false,
-                        errorMessage = e.message ?: "Couldn’t look up this video."
+                        errorMessage = userFacingTransferMessage(e)
                     )
                 }
             }
@@ -149,16 +152,23 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
                     errorMessage = null,
                     isDownloading = true,
                     progressFraction = null,
-                    progressLabel = if (metadata.usesYTDLP) "Preparing…" else "Starting…"
+                    progressLabel = if (metadata.platform == VideoPlatform.YOUTUBE || metadata.usesYTDLP) {
+                        "Preparing…"
+                    } else {
+                        "Starting…"
+                    }
                 )
             }
 
             var destination = app.fileStorage.makeVideoFile(metadata.title, format.fileExtension)
             try {
-                if (metadata.usesYTDLP && format.ytdlpFormatSelector != null) {
+                if (metadata.platform == VideoPlatform.YOUTUBE ||
+                    (metadata.usesYTDLP && format.ytdlpFormatSelector != null)
+                ) {
+                    val selector = format.ytdlpFormatSelector ?: YOUTUBE_FORMAT_SELECTOR
                     ytdlpDownloader.download(
                         pageURL = metadata.sourceURL,
-                        formatSelector = format.ytdlpFormatSelector,
+                        formatSelector = selector,
                         destination = destination
                     ).collect { progress ->
                         _state.update {
@@ -222,7 +232,7 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
                 destination.delete()
                 val message = when (e) {
                     is DownloadError.Cancelled -> null
-                    else -> e.message
+                    else -> userFacingTransferMessage(e)
                 }
                 _state.update {
                     it.copy(isDownloading = false, errorMessage = message)

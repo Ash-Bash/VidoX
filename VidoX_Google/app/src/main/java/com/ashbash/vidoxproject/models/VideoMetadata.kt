@@ -12,7 +12,24 @@ data class VideoFormat(
     val isAudioOnly: Boolean,
     val ytdlpFormatSelector: String? = null,
     val isHlsStream: Boolean = false
-)
+) {
+    val qualityTitle: String
+        get() = when {
+            isAudioOnly -> "Audio only"
+            quality != null -> "${quality}p"
+            else -> label
+        }
+
+    val formatDetail: String
+        get() {
+            val kind = when {
+                isAudioOnly -> "Audio"
+                isHlsStream -> "Stream"
+                else -> "Video"
+            }
+            return "$kind · ${fileExtension.uppercase()}"
+        }
+}
 
 /** Result of URL extraction — used by the downloader UI before persisting. */
 data class VideoMetadata(

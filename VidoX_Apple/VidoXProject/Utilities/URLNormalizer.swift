@@ -39,6 +39,8 @@ enum URLNormalizer {
 
         if VideoPlatform.detect(from: components.url?.absoluteString ?? trimmed) == .facebook {
             components = normalizeFacebookComponents(components)
+        } else if VideoPlatform.detect(from: components.url?.absoluteString ?? trimmed) == .youtube {
+            components = normalizeYouTubeComponents(components)
         } else if let items = components.queryItems, !items.isEmpty {
             components.queryItems = items.filter { item in
                 !stripQueryKeys.contains(item.name.lowercased())
@@ -73,6 +75,9 @@ enum URLNormalizer {
             "www.facebook.com"
         case "www.fb.watch":
             "fb.watch"
+        case "m.youtube.com", "music.youtube.com", "www.music.youtube.com",
+             "youtube-nocookie.com", "www.youtube-nocookie.com":
+            "www.youtube.com"
         default:
             host
         }
@@ -99,6 +104,21 @@ enum URLNormalizer {
             components.path = String(path.dropLast())
         }
 
+        return components
+    }
+
+    private static func normalizeYouTubeComponents(_ components: URLComponents) -> URLComponents {
+        var components = components
+        if let items = components.queryItems, !items.isEmpty {
+            let kept = items.filter { item in
+                let name = item.name.lowercased()
+                if name == "v" || name == "vi" || name == "t" || name == "list" {
+                    return true
+                }
+                return !stripQueryKeys.contains(name)
+            }
+            components.queryItems = kept.isEmpty ? nil : kept
+        }
         return components
     }
 

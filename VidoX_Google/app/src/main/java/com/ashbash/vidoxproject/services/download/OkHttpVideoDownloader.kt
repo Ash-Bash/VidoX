@@ -15,7 +15,6 @@ class OkHttpVideoDownloader : VideoDownloading {
     override fun download(from: URL, to: File): Flow<DownloadProgress> = flow {
         val request = Request.Builder()
             .url(from)
-            .header("User-Agent", HttpClients.IPHONE_UA)
             .apply { applyRefererHeaders(from) }
             .build()
 
@@ -45,11 +44,19 @@ class OkHttpVideoDownloader : VideoDownloading {
 
     private fun Request.Builder.applyRefererHeaders(remoteURL: URL): Request.Builder {
         val host = remoteURL.host?.lowercase().orEmpty()
+        val path = remoteURL.path.lowercase()
+        val absolute = remoteURL.toString().lowercase()
         when {
             host.contains("googlevideo.com") || host.contains("youtube.com") -> {
-                header("Referer", "https://www.youtube.com")
-                header("Origin", "https://www.youtube.com")
+                val isHls = path.contains(".m3u8") || absolute.contains("manifest/hls")
+                header("User-Agent", if (isHls) HttpClients.YOUTUBE_IOS_UA else HttpClients.YOUTUBE_VR_UA)
+                header("Referer", "https://www.youtube.com/")
             }
+            else -> {
+                header("User-Agent", HttpClients.IPHONE_UA)
+            }
+        }
+        when {
             host.contains("cdninstagram.com") || host.contains("fbcdn.net") || host.contains("scontent") -> {
                 header("Referer", "https://www.instagram.com/")
                 header("Origin", "https://www.instagram.com")

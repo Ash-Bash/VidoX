@@ -23,6 +23,14 @@ enum AppDestination: String, CaseIterable, Identifiable, Hashable {
         case .settings: "gearshape.fill"
         }
     }
+
+    var accentColor: Color {
+        switch self {
+        case .library: Color(red: 0.0, green: 0.48, blue: 1.0)
+        case .pins: Color.orange
+        case .settings: Color(red: 0.56, green: 0.56, blue: 0.58)
+        }
+    }
 }
 
 /// Sidebar selection for split view: browse destinations or a specific pinned video.
@@ -38,6 +46,8 @@ final class AppNavigationState {
     /// Optional so `List(selection:)` works on iOS (requires `Binding<Selection?>`).
     var splitSelection: SplitSidebarSelection? = .destination(.library)
     var isDownloaderPresented = false
+    var isOnboardingPresented = false
+    var isWhatsNewPresented = false
     /// Selected library item for navigation within Library / Pins stacks.
     var selectedVideoID: UUID?
 
@@ -49,5 +59,13 @@ final class AppNavigationState {
 
     func openDownloader() {
         isDownloaderPresented = true
+    }
+
+    func showOnboarding() {
+        isOnboardingPresented = true
+    }
+
+    func showWhatsNew() {
+        isWhatsNewPresented = true
     }
 }

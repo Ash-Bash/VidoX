@@ -68,6 +68,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.ashbash.vidoxproject.VidoXApp
 import com.ashbash.vidoxproject.services.download.VideoRedownloader
+import com.ashbash.vidoxproject.services.download.userFacingTransferMessage
 import com.ashbash.vidoxproject.services.export.VideoExportService
 import com.ashbash.vidoxproject.ui.shared.BusyProgressDialog
 import com.ashbash.vidoxproject.ui.shared.PlatformBadge
@@ -257,7 +258,7 @@ fun VideoDetailScreen(
                                     }
                                     alert = "Redownloaded successfully."
                                 } catch (e: Exception) {
-                                    alert = e.message ?: "Redownload failed."
+                                    alert = userFacingTransferMessage(e)
                                 } finally {
                                     isRedownloading = false
                                 }

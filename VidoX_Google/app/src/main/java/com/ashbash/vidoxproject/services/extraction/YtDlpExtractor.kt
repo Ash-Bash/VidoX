@@ -11,6 +11,22 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URL
 
+const val YOUTUBE_EXTRACTOR_ARGS =
+    "youtube:player_client=android_vr,tv,-web,-mweb,-ios,-android,-android_sdkless"
+
+/** Fetch Info only — fewer clients, no webpage skip (that triggers “page needs to be reloaded”). */
+const val YOUTUBE_EXTRACT_ARGS =
+    "youtube:player_client=android_vr,tv"
+
+/** Merge video+audio first, then any single file so lookup/download don’t fail empty. */
+fun youtubeSelector(maxHeight: Int? = null): String {
+    val height = maxHeight?.let { "[height<=$it]" } ?: ""
+    return "bv*${height}[ext=mp4]+ba[ext=m4a]/bv*$height+ba/b*$height"
+}
+
+const val YOUTUBE_FORMAT_SELECTOR =
+    "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b*"
+
 /** yt-dlp-backed social extractor (Mac-equivalent path). */
 class YtDlpExtractor(private val appContext: Context) : VideoExtracting {
     override suspend fun extract(from: URL): VideoMetadata = withContext(Dispatchers.IO) {
@@ -23,7 +39,7 @@ class YtDlpExtractor(private val appContext: Context) : VideoExtracting {
         }
 
         val extra = if (platform == VideoPlatform.YOUTUBE) {
-            listOf("--extractor-args" to "youtube:player_client=android")
+            listOf("--extractor-args" to YOUTUBE_EXTRACT_ARGS)
         } else emptyList()
 
         extractGeneric(
@@ -62,7 +78,7 @@ class YtDlpExtractor(private val appContext: Context) : VideoExtracting {
         val thumbnail = json.optString("thumbnail").ifEmpty { null }?.let { URL(it) }
         val defaultExt = json.optString("ext").ifEmpty { "mp4" }
         val rawFormats = json.optJSONArray("formats") ?: JSONArray()
-        var formats = curatedFormats(rawFormats, url)
+        var formats = curatedFormats(rawFormats, url, platform)
         if (formats.isEmpty()) {
             formats = listOf(
                 VideoFormat(
@@ -72,7 +88,11 @@ class YtDlpExtractor(private val appContext: Context) : VideoExtracting {
                     fileExtension = defaultExt,
                     quality = null,
                     isAudioOnly = false,
-                    ytdlpFormatSelector = "best[ext=mp4]/best"
+                    ytdlpFormatSelector = if (platform == VideoPlatform.YOUTUBE) {
+                        youtubeSelector()
+                    } else {
+                        "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b"
+                    }
                 )
             )
         }
@@ -88,7 +108,11 @@ class YtDlpExtractor(private val appContext: Context) : VideoExtracting {
         )
     }
 
-    private fun curatedFormats(raw: JSONArray, pageURL: URL): List<VideoFormat> {
+    private fun curatedFormats(raw: JSONArray, pageURL: URL, platform: VideoPlatform): List<VideoFormat> {
+        if (platform == VideoPlatform.YOUTUBE) {
+            return youtubeDownloadFormats(raw, pageURL)
+        }
+
         val progressive = mutableListOf<Triple<Int, String, String>>()
         for (i in 0 until raw.length()) {
             val entry = raw.optJSONObject(i) ?: continue
@@ -112,7 +136,7 @@ class YtDlpExtractor(private val appContext: Context) : VideoExtracting {
             fileExtension = "mp4",
             quality = progressive.firstOrNull()?.first,
             isAudioOnly = false,
-            ytdlpFormatSelector = "best[ext=mp4]/best"
+            ytdlpFormatSelector = "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b"
         )
         for ((height, id, ext) in progressive) {
             if (!seenHeights.add(height)) continue
@@ -127,7 +151,61 @@ class YtDlpExtractor(private val appContext: Context) : VideoExtracting {
             )
             if (result.size >= 5) break
         }
+        appendAudioFormat(raw, pageURL, result)
+        return result
+    }
 
+    private fun youtubeDownloadFormats(raw: JSONArray, pageURL: URL): List<VideoFormat> {
+        val heights = mutableSetOf<Int>()
+        for (i in 0 until raw.length()) {
+            val entry = raw.optJSONObject(i) ?: continue
+            val id = entry.optString("format_id")
+            if (id == "18" || id.startsWith("18-") || id == "22" || id.startsWith("22-")) continue
+            val height = entry.optInt("height", -1)
+            val vcodec = entry.optString("vcodec", "none")
+            if (height < 360 || vcodec == "none") continue
+            heights += height
+        }
+        val sortedHeights = heights.sortedDescending()
+        val result = mutableListOf<VideoFormat>()
+        val bestHeight = sortedHeights.firstOrNull()
+        if (bestHeight != null) {
+            result += VideoFormat(
+                id = "yt-$bestHeight",
+                label = "${bestHeight}p",
+                url = pageURL,
+                fileExtension = "mp4",
+                quality = bestHeight,
+                isAudioOnly = false,
+                ytdlpFormatSelector = youtubeSelector()
+            )
+            for (height in sortedHeights.drop(1).take(3)) {
+                result += VideoFormat(
+                    id = "yt-$height",
+                    label = "${height}p",
+                    url = pageURL,
+                    fileExtension = "mp4",
+                    quality = height,
+                    isAudioOnly = false,
+                    ytdlpFormatSelector = youtubeSelector(height)
+                )
+            }
+        } else {
+            result += VideoFormat(
+                id = "best-mp4",
+                label = "Best quality",
+                url = pageURL,
+                fileExtension = "mp4",
+                quality = null,
+                isAudioOnly = false,
+                ytdlpFormatSelector = youtubeSelector()
+            )
+        }
+        appendAudioFormat(raw, pageURL, result)
+        return result
+    }
+
+    private fun appendAudioFormat(raw: JSONArray, pageURL: URL, result: MutableList<VideoFormat>) {
         for (i in 0 until raw.length()) {
             val entry = raw.optJSONObject(i) ?: continue
             val vcodec = entry.optString("vcodec", "none")
@@ -143,10 +221,9 @@ class YtDlpExtractor(private val appContext: Context) : VideoExtracting {
                     isAudioOnly = true,
                     ytdlpFormatSelector = id
                 )
-                break
+                return
             }
         }
-        return result
     }
 
     private fun JSONObject.optString(key: String): String =

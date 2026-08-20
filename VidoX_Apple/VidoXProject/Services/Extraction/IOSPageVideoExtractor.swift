@@ -13,7 +13,11 @@ enum PageExtractionError: LocalizedError, Sendable {
         case .noMediaFound:
             "Couldn’t find a downloadable video on that page. Try another link or a direct .mp4 URL."
         case .network(let message):
-            message
+            if let code = TransferErrorHelp.httpStatus(in: message) {
+                TransferErrorHelp.message(forHTTPStatus: code)
+            } else {
+                message
+            }
         case .invalidResponse:
             "The site returned data VidoX couldn’t read."
         }
@@ -37,7 +41,10 @@ nonisolated struct IOSPageVideoExtractor: VideoExtracting {
         let detected = VideoPlatform.detect(from: url.absoluteString)
         let platform: VideoPlatform = detected == .unknown ? .web : detected
 
-        if platform == .youtube, let videoID = Self.youtubeVideoID(from: url) {
+        if platform == .youtube {
+            guard let videoID = Self.youtubeVideoID(from: url) else {
+                throw PageExtractionError.network("Couldn’t read that YouTube link. Try a watch, Shorts, or youtu.be URL.")
+            }
             return try await extractYouTube(videoID: videoID, sourceURL: url)
         }
 
@@ -1161,13 +1168,27 @@ nonisolated struct IOSPageVideoExtractor: VideoExtracting {
     // MARK: - YouTube
 
     private func extractYouTube(videoID: String, sourceURL: URL) async throws -> VideoMetadata {
-        // Race ANDROID + IOS Innertube — take the first usable result (usually < 2s).
-        if let metadata = await raceYouTubeInnertube(videoID: videoID, sourceURL: sourceURL) {
-            return metadata
-        }
-
-        // Single short Piped attempt only.
-        if let metadata = await extractYouTubeViaPiped(videoID: videoID, sourceURL: sourceURL) {
+        // Innertube clients and Piped mirrors race together so a hung API cannot stall lookup.
+        if let metadata = await withTaskGroup(of: VideoMetadata?.self, returning: VideoMetadata?.self) { group in
+            group.addTask {
+                await self.raceYouTubeInnertube(videoID: videoID, sourceURL: sourceURL)
+            }
+            for base in Self.pipedInstances {
+                group.addTask {
+                    await self.extractYouTubeViaPiped(
+                        videoID: videoID,
+                        sourceURL: sourceURL,
+                        instances: [base]
+                    )
+                }
+            }
+            for await result in group {
+                guard let result, result.formats.contains(where: { !$0.isAudioOnly }) else { continue }
+                group.cancelAll()
+                return result
+            }
+            return nil
+        } {
             return metadata
         }
 
@@ -1176,27 +1197,28 @@ nonisolated struct IOSPageVideoExtractor: VideoExtracting {
         )
     }
 
-    /// Runs ANDROID and IOS player calls in parallel; returns the first metadata that works.
+    /// Runs Innertube clients in parallel. Muxed itag 18 currently 403s on googlevideo,
+    /// so prefer a client that returns HLS (iOS) over ANDROID_VR’s blocked progressive file.
     private func raceYouTubeInnertube(videoID: String, sourceURL: URL) async -> VideoMetadata? {
-        await withTaskGroup(of: VideoMetadata?.self) { group in
+        await withTaskGroup(of: (String, VideoMetadata?).self) { group in
             for profile in Self.youtubeClientProfiles {
                 group.addTask {
                     do {
                         guard let json = try await self.fetchYouTubePlayerJSON(videoID: videoID, profile: profile) else {
-                            return nil
+                            return (profile.name, nil)
                         }
-                        return self.metadataFromYouTubePlayerJSON(json, sourceURL: sourceURL)
+                        return (profile.name, self.metadataFromYouTubePlayerJSON(json, sourceURL: sourceURL))
                     } catch {
-                        return nil
+                        return (profile.name, nil)
                     }
                 }
             }
 
-            for await result in group {
-                if let result {
-                    group.cancelAll()
-                    return result
-                }
+            for await (_, result) in group {
+                guard let result, !result.formats.isEmpty else { continue }
+                // First usable client wins — don't wait on hung Innertube siblings.
+                group.cancelAll()
+                return result
             }
             return nil
         }
@@ -1205,11 +1227,17 @@ nonisolated struct IOSPageVideoExtractor: VideoExtracting {
     // MARK: Piped
 
     private static let pipedInstances = [
-        "https://api.piped.private.coffee"
+        "https://api.piped.private.coffee",
+        "https://pipedapi.kavin.rocks",
+        "https://pipedapi.adminforge.de"
     ]
 
-    private func extractYouTubeViaPiped(videoID: String, sourceURL: URL) async -> VideoMetadata? {
-        for base in Self.pipedInstances {
+    private func extractYouTubeViaPiped(
+        videoID: String,
+        sourceURL: URL,
+        instances: [String] = Self.pipedInstances
+    ) async -> VideoMetadata? {
+        for base in instances {
             guard let endpoint = URL(string: "\(base)/streams/\(videoID)") else { continue }
             var request = URLRequest(url: endpoint)
             request.timeoutInterval = 5
@@ -1364,28 +1392,38 @@ nonisolated struct IOSPageVideoExtractor: VideoExtracting {
 
     private static let youtubeClientProfiles: [YouTubeClientProfile] = [
         YouTubeClientProfile(
-            name: "ANDROID",
-            version: "20.10.38",
+            name: "ANDROID_VR",
+            version: "1.65.10",
             apiKey: "AIzaSyA8eiZmM1FaDVzRv56ghNOtmvq96PukvtE",
-            userAgent: "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip",
-            clientNameHeader: "3",
+            userAgent: "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+            clientNameHeader: "28",
             extraClientFields: [
-                "androidSdkVersion": 34,
+                "androidSdkVersion": 32,
+                "deviceMake": "Oculus",
+                "deviceModel": "Quest 3",
                 "osName": "Android",
-                "osVersion": "14"
+                "osVersion": "12L"
             ]
         ),
         YouTubeClientProfile(
+            name: "TVHTML5",
+            version: "7.20260114.12.00",
+            apiKey: "AIzaSyDCU8hBzN1GPtDKJ1ynLyFnw4CD4LYpkUI",
+            userAgent: "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold (unlike Gecko), Unknown_TV_Unknown_0/Unknown (Unknown, Unknown)",
+            clientNameHeader: "7",
+            extraClientFields: [:]
+        ),
+        YouTubeClientProfile(
             name: "IOS",
-            version: "20.10.4",
+            version: "20.50.3",
             apiKey: "AIzaSyB-63vPrdThhKuerbB2N_a6SpUGSj3JdxE",
-            userAgent: "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 17_7 like Mac OS X;)",
+            userAgent: "com.google.ios.youtube/20.50.3 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)",
             clientNameHeader: "5",
             extraClientFields: [
                 "deviceMake": "Apple",
                 "deviceModel": "iPhone16,2",
                 "osName": "iPhone",
-                "osVersion": "17.7.0.21H16"
+                "osVersion": "18.2.0.22C152"
             ]
         )
     ]
@@ -1541,21 +1579,34 @@ nonisolated struct IOSPageVideoExtractor: VideoExtracting {
         let thumbnailURL = thumb.flatMap(URL.init(string:))
 
         var formats: [VideoFormat] = []
-        var seenHeights = Set<Int>()
 
-        // Progressive muxed files first (best download experience).
-        for entry in progressive.sorted(by: { ($0["height"] as? Int ?? 0) > ($1["height"] as? Int ?? 0) }) {
+        if let hls {
+            formats.insert(
+                VideoFormat(
+                    id: "yt-hls",
+                    label: "Best (stream)",
+                    url: hls,
+                    fileExtension: "mp4",
+                    quality: 1080,
+                    isAudioOnly: false,
+                    isHLSStream: true
+                ),
+                at: 0
+            )
+        }
+
+        for entry in progressive {
+            let itag = Self.youtubeItag(from: entry)
+            #if !os(macOS)
+            // Direct googlevideo itag 18/22 currently 403; Mac remaps these to yt-dlp merges.
+            if itag == 18 || itag == 22 { continue }
+            #endif
             guard let mediaURL = Self.mediaURL(from: entry) else { continue }
+            let mime = (entry["mimeType"] as? String) ?? "video/mp4"
             let height = entry["height"] as? Int
-            if let height {
-                if seenHeights.contains(height) { continue }
-                seenHeights.insert(height)
-            }
-            let mime = (entry["mimeType"] as? String) ?? ""
-            let itag = entry["itag"] as? Int ?? formats.count
             formats.append(
                 VideoFormat(
-                    id: "yt-\(itag)",
+                    id: "yt-prog-\(itag ?? formats.count)",
                     label: height.map { "\($0)p" } ?? "Video",
                     url: mediaURL,
                     fileExtension: mime.contains("webm") ? "webm" : "mp4",
@@ -1563,23 +1614,7 @@ nonisolated struct IOSPageVideoExtractor: VideoExtracting {
                     isAudioOnly: false
                 )
             )
-            if formats.count >= 6 { break }
-        }
-
-        if let hls {
-            let insertAt = formats.isEmpty ? 0 : 1
-            formats.insert(
-                VideoFormat(
-                    id: "yt-hls",
-                    label: "Best (stream)",
-                    url: hls,
-                    fileExtension: "mp4",
-                    quality: seenHeights.max(),
-                    isAudioOnly: false,
-                    isHLSStream: true
-                ),
-                at: min(insertAt, formats.count)
-            )
+            if formats.filter({ !$0.isHLSStream && !$0.isAudioOnly }).count >= 4 { break }
         }
 
         // Only fall back to adaptive video-only when nothing muxed/HLS exists.
@@ -1705,23 +1740,91 @@ nonisolated struct IOSPageVideoExtractor: VideoExtracting {
     // MARK: - Helpers
 
     static func youtubeVideoID(from url: URL) -> String? {
-        let host = url.host?.lowercased() ?? ""
-        if host.contains("youtu.be") {
-            let id = url.path.split(separator: "/").first.map(String.init) ?? ""
-            let cleaned = id.split(separator: "?").first.map(String.init) ?? id
-            return cleaned.count >= 11 ? String(cleaned.prefix(11)) : nil
-        }
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+        parseYouTubeVideoID(from: url, allowNested: true)
+    }
+
+    private static func validYouTubeID(_ raw: String?) -> String? {
+        guard var value = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
             return nil
         }
-        if let v = components.queryItems?.first(where: { $0.name == "v" })?.value, v.count >= 11 {
-            return String(v.prefix(11))
+        if let cut = value.firstIndex(where: { $0 == "?" || $0 == "&" || $0 == "#" || $0 == "/" }) {
+            value = String(value[..<cut])
         }
+        let id = String(value.prefix(11))
+        guard id.range(of: #"^[A-Za-z0-9_-]{11}$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        return id
+    }
+
+    private static func parseYouTubeVideoID(from url: URL, allowNested: Bool) -> String? {
+        let path = url.path.lowercased()
+        if allowNested, path.contains("attribution_link") || path.contains("redirect"),
+           let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            for name in ["u", "q"] {
+                guard let encoded = components.queryItems?.first(where: { $0.name == name })?.value else {
+                    continue
+                }
+                let decoded = encoded.removingPercentEncoding ?? encoded
+                let nestedString: String
+                if decoded.hasPrefix("http") {
+                    nestedString = decoded
+                } else if decoded.hasPrefix("/") {
+                    nestedString = "https://www.youtube.com\(decoded)"
+                } else {
+                    continue
+                }
+                if let nested = URL(string: nestedString),
+                   let id = parseYouTubeVideoID(from: nested, allowNested: false) {
+                    return id
+                }
+            }
+        }
+
+        let host = url.host?.lowercased() ?? ""
+        if host.contains("youtu.be") {
+            let first = url.path.split(separator: "/").first(where: { !$0.isEmpty }).map(String.init)
+            if let id = validYouTubeID(first) { return id }
+        }
+
+        if let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            for name in ["v", "vi", "video_id"] {
+                if let id = validYouTubeID(components.queryItems?.first(where: { $0.name == name })?.value) {
+                    return id
+                }
+            }
+            if let fragment = components.fragment {
+                for item in fragment.split(separator: "&") {
+                    let pair = item.split(separator: "=", maxSplits: 1)
+                    if pair.first == "v", let id = validYouTubeID(pair.dropFirst().first.map(String.init)) {
+                        return id
+                    }
+                }
+            }
+        }
+
         let parts = url.path.split(separator: "/").map(String.init)
-        if let embedIndex = parts.firstIndex(where: { ["embed", "shorts", "live", "v"].contains($0) }),
-           embedIndex + 1 < parts.count {
-            return String(parts[embedIndex + 1].prefix(11))
+        let markers: Set<String> = ["embed", "shorts", "live", "v", "e"]
+        if let embedIndex = parts.firstIndex(where: { markers.contains($0.lowercased()) }),
+           embedIndex + 1 < parts.count,
+           let id = validYouTubeID(parts[embedIndex + 1]) {
+            return id
         }
+
+        let absolute = url.absoluteString
+        let pattern = #"(?:v=|/embed/|/shorts/|/live/|/e/|youtu\.be/)([A-Za-z0-9_-]{11})"#
+        if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+           let match = regex.firstMatch(in: absolute, range: NSRange(absolute.startIndex..., in: absolute)),
+           let idRange = Range(match.range(at: 1), in: absolute) {
+            return validYouTubeID(String(absolute[idRange]))
+        }
+        return nil
+    }
+
+    private static func youtubeItag(from entry: [String: Any]) -> Int? {
+        if let int = entry["itag"] as? Int { return int }
+        if let number = entry["itag"] as? NSNumber { return number.intValue }
+        if let string = entry["itag"] as? String { return Int(string) }
         return nil
     }
 

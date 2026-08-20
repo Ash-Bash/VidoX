@@ -353,7 +353,7 @@ struct VideoDetailView: View {
             }
             alertMessage = "Redownloaded successfully."
         } catch {
-            alertMessage = error.localizedDescription
+            alertMessage = TransferErrorHelp.userFacingMessage(from: error)
         }
     }
 

@@ -28,6 +28,9 @@ struct VidoXApp: App {
                     LibraryStorageMigrator.repairAll(in: modelContainer.mainContext)
                     localSync.configure(container: modelContainer)
                     localSync.startIfEnabled()
+                    #if os(macOS)
+                    YTDLPTool.prepareInBackground()
+                    #endif
                 }
         }
         .modelContainer(modelContainer)
@@ -42,7 +45,10 @@ struct VidoXApp: App {
 
 /// Routes between compact TabView and regular NavigationSplitView shells.
 struct RootView: View {
+    @Environment(AppNavigationState.self) private var navigation
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @AppStorage("onboarding.completed") private var onboardingCompleted = false
+    @AppStorage("whatsNew.lastSeenVersion") private var lastSeenVersion = ""
 
     var body: some View {
         adaptiveRootShell(
@@ -50,6 +56,75 @@ struct RootView: View {
             compact: { CompactTabShell() },
             regular: { RegularSplitShell() }
         )
+        .onAppear {
+            if !onboardingCompleted {
+                navigation.isOnboardingPresented = true
+            } else if WhatsNewNotes.shouldPresent(lastSeenVersion: lastSeenVersion) {
+                navigation.isWhatsNewPresented = true
+            }
+        }
+        .modifier(
+            OnboardingPresentationModifier(
+                isPresented: Bindable(navigation).isOnboardingPresented,
+                onFinished: {
+                    onboardingCompleted = true
+                    lastSeenVersion = WhatsNewNotes.currentVersion
+                    navigation.isOnboardingPresented = false
+                }
+            )
+        )
+        .modifier(
+            WhatsNewPresentationModifier(
+                isPresented: Bindable(navigation).isWhatsNewPresented,
+                items: WhatsNewNotes.displayItems(lastSeenVersion: lastSeenVersion),
+                onFinished: {
+                    lastSeenVersion = WhatsNewNotes.currentVersion
+                    navigation.isWhatsNewPresented = false
+                }
+            )
+        )
+    }
+}
+
+private struct OnboardingPresentationModifier: ViewModifier {
+    @Binding var isPresented: Bool
+    let onFinished: () -> Void
+
+    func body(content: Content) -> some View {
+        #if os(macOS)
+        content
+            .sheet(isPresented: $isPresented) {
+                OnboardingView(onFinished: onFinished)
+                    .frame(width: 420, height: 480)
+            }
+        #else
+        content
+            .fullScreenCover(isPresented: $isPresented) {
+                OnboardingView(onFinished: onFinished)
+            }
+        #endif
+    }
+}
+
+private struct WhatsNewPresentationModifier: ViewModifier {
+    @Binding var isPresented: Bool
+    var items: [WhatsNewItem]
+    let onFinished: () -> Void
+
+    func body(content: Content) -> some View {
+        #if os(macOS)
+        content
+            .sheet(isPresented: $isPresented) {
+                WhatsNewView(items: items, onFinished: onFinished)
+                    .frame(width: 420, height: 520)
+            }
+        #else
+        content
+            .sheet(isPresented: $isPresented) {
+                WhatsNewView(items: items, onFinished: onFinished)
+                    .presentationDetents([.medium, .large])
+            }
+        #endif
     }
 }
 

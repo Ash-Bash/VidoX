@@ -292,6 +292,28 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             .font(.subheadline)
+
+            HStack(spacing: 10) {
+                Button {
+                    navigation.showOnboarding()
+                } label: {
+                    Label("Welcome Guide", systemImage: "hand.wave.fill")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    navigation.showWhatsNew()
+                } label: {
+                    Label("What’s New", systemImage: "sparkles")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
         }
     }
 

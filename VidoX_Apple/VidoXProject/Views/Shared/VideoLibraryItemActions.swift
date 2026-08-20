@@ -119,7 +119,7 @@ struct VideoLibraryItemActions: ViewModifier {
             }
             alertMessage = "Redownloaded successfully."
         } catch {
-            alertMessage = error.localizedDescription
+            alertMessage = TransferErrorHelp.userFacingMessage(from: error)
         }
     }
 

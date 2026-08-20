@@ -17,7 +17,11 @@ enum ExtractionError: LocalizedError, Sendable {
         case .notDirectMedia:
             "This isn’t a direct media file. Paste a file link (.mp4, .mov, …) or a supported video page (YouTube, Vimeo, and similar) when standalone downloads are enabled."
         case .network(let message):
-            message
+            if let code = TransferErrorHelp.httpStatus(in: message) {
+                TransferErrorHelp.message(forHTTPStatus: code)
+            } else {
+                message
+            }
         case .emptyResponse:
             "The server returned an empty response."
         }

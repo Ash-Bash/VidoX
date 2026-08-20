@@ -52,29 +52,11 @@ struct DownloaderSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        Task {
-                            let saved = await viewModel.startDownload(modelContext: modelContext)
-                            if saved { dismiss() }
-                        }
-                    } label: {
-                        if viewModel.isDownloading {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Text("Download")
-                        }
-                    }
-                    .disabled(!viewModel.canDownload)
-                }
             }
             #endif
-            #if os(macOS)
             .safeAreaInset(edge: .bottom) {
                 footerBar
             }
-            #endif
         }
         #if os(macOS)
         .frame(minWidth: 460, idealWidth: 500, minHeight: 520, idealHeight: 580)
@@ -189,11 +171,12 @@ struct DownloaderSheet: View {
 
     private func formatCard(_ metadata: VideoMetadata) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Format")
+            Text("Quality")
                 .font(.headline)
             FormatPickerView(
                 formats: metadata.formats,
-                selection: $viewModel.selectedFormatID
+                selection: $viewModel.selectedFormatID,
+                recommendedID: metadata.bestVideoFormat?.id
             )
         }
         .padding(16)
@@ -269,10 +252,12 @@ struct DownloaderSheet: View {
     }
 
     private var footerBar: some View {
-        HStack {
+        HStack(spacing: 12) {
+            #if os(macOS)
             Spacer()
             Button("Cancel") { dismiss() }
                 .keyboardShortcut(.cancelAction)
+            #endif
 
             Button {
                 Task {
@@ -285,16 +270,31 @@ struct DownloaderSheet: View {
                         .controlSize(.small)
                         .padding(.horizontal, 8)
                 } else {
-                    Text("Download")
+                    iconAndTitle("Download", systemImage: "arrow.down")
                 }
             }
-            .buttonStyle(.borderedProminent)
+            .labelsVisibility(.visible)
             .disabled(!viewModel.canDownload)
+            .tint(viewModel.canDownload ? Color.accentColor : Color.primary)
             .keyboardShortcut(.defaultAction)
+            #if os(iOS) || os(visionOS)
+            .frame(maxWidth: .infinity)
+            #endif
         }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
         .background(.bar)
+    }
+}
+
+@ViewBuilder
+private func iconAndTitle(_ title: String, systemImage: String) -> some View {
+    // HStack, not Label — iPhone toolbars collapse Label to icon-only even with titleAndIcon.
+    HStack(spacing: 6) {
+        Image(systemName: systemImage)
+        Text(title)
     }
 }
 
@@ -346,36 +346,65 @@ struct URLInputView: View {
 struct FormatPickerView: View {
     let formats: [VideoFormat]
     @Binding var selection: String?
+    var recommendedID: String? = nil
 
     var body: some View {
+        let video = formats.filter { !$0.isAudioOnly }
+        let audio = formats.filter(\.isAudioOnly)
         VStack(spacing: 8) {
-            ForEach(formats) { format in
-                Button {
-                    selection = format.id
-                } label: {
-                    HStack {
-                        Image(systemName: selection == format.id ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(selection == format.id ? Color.accentColor : .secondary)
-                        Text(format.label)
-                            .foregroundStyle(.primary)
-                        Spacer()
-                        if format.isAudioOnly {
-                            Text("Audio")
-                                .font(.caption2.weight(.medium))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(Color.secondary.opacity(0.15), in: Capsule())
-                        }
-                    }
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(selection == format.id ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
-                    )
-                }
-                .buttonStyle(.plain)
+            ForEach(video) { format in
+                formatRow(format, badge: format.id == recommendedID ? "Recommended" : nil)
+            }
+            if !audio.isEmpty, !video.isEmpty {
+                Text("Audio")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 6)
+            }
+            ForEach(audio) { format in
+                formatRow(format, badge: "Audio")
             }
         }
+    }
+
+    private func formatRow(_ format: VideoFormat, badge: String?) -> some View {
+        Button {
+            selection = format.id
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: selection == format.id ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(selection == format.id ? Color.accentColor : .secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(format.qualityTitle)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.primary)
+                    Text(format.formatDetail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                if let badge {
+                    Text(badge)
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .foregroundStyle(format.id == recommendedID ? Color.accentColor : .secondary)
+                        .background(
+                            (format.id == recommendedID ? Color.accentColor : Color.secondary)
+                                .opacity(0.14),
+                            in: Capsule()
+                        )
+                }
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(selection == format.id ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -428,6 +457,7 @@ final class DownloaderViewModel {
         do {
             let captured = url
             let result = try await withThrowingTaskGroup(of: VideoMetadata.self) { group in
+                defer { group.cancelAll() }
                 group.addTask {
                     try await ExtractionRouter().extract(from: captured)
                 }
@@ -438,6 +468,7 @@ final class DownloaderViewModel {
                         switch platform {
                         case .facebook, .reddit, .twitch, .twitter: 28
                         case .instagram, .tiktok, .rumble: 22
+                        case .youtube: 12
                         default: 15
                         }
                     }()
@@ -446,18 +477,24 @@ final class DownloaderViewModel {
                         "Timed out looking up this video. Check your connection and try again."
                     )
                 }
-                guard let first = try await group.next() else {
-                    throw PageExtractionError.network("Couldn’t look up this video.")
+                // next() throwing used to leave yt-dlp running, so the spinner never stopped.
+                while let outcome = await group.nextResult() {
+                    switch outcome {
+                    case .success(let metadata):
+                        return metadata
+                    case .failure(let error):
+                        if error is CancellationError { continue }
+                        throw error
+                    }
                 }
-                group.cancelAll()
-                return first
+                throw PageExtractionError.network("Couldn’t look up this video.")
             }
             metadata = result
             selectedFormatID = result.bestVideoFormat?.id ?? result.formats.first?.id
         } catch is CancellationError {
             errorMessage = "Lookup cancelled."
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = TransferErrorHelp.userFacingMessage(from: error)
         }
     }
 
@@ -480,7 +517,9 @@ final class DownloaderViewModel {
 
         do {
             #if os(macOS)
-            if metadata.usesYTDLP, let selector = format.ytdlpFormatSelector {
+            if metadata.platform == .youtube || (metadata.usesYTDLP && format.ytdlpFormatSelector != nil) {
+                let selector = format.ytdlpFormatSelector
+                    ?? ExperimentalSocialExtractor.youtubeFormatSelector
                 for try await progress in ytdlpDownloader.download(
                     pageURL: metadata.sourceURL,
                     formatSelector: selector,
@@ -500,11 +539,19 @@ final class DownloaderViewModel {
                     .first {
                     destination = match
                 }
+            } else if format.isHLSStream {
+                progressLabel = "Exporting stream…"
+                progressFraction = nil
+                let exportDestination = destination.deletingPathExtension().appendingPathExtension("mp4")
+                try await HLSVideoDownloader.download(from: format.url, to: exportDestination)
+                destination = exportDestination
+                progressLabel = "Finished"
+                progressFraction = 1
             } else {
                 try await runURLSessionDownload(from: format.url, to: destination)
             }
             #else
-            // iOS: direct/Piped URLs via URLSession; HLS via AVFoundation export.
+            // Direct/Piped URLs via URLSession; HLS via AVFoundation export.
             if format.isHLSStream {
                 progressLabel = "Exporting stream…"
                 progressFraction = nil
@@ -537,7 +584,7 @@ final class DownloaderViewModel {
             if let downloadError = error as? DownloadError, case .cancelled = downloadError {
                 errorMessage = nil
             } else {
-                errorMessage = error.localizedDescription
+                errorMessage = TransferErrorHelp.userFacingMessage(from: error)
             }
             return false
         }

@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.automirrored.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.Button
@@ -38,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.font.FontWeight
@@ -100,7 +102,8 @@ fun DownloaderSheet(
                         viewModel.startDownload(onSuccess = onDismiss)
                     },
                     enabled = state.canDownload && !state.isDownloading,
-                    emphasized = state.canDownload
+                    emphasized = state.canDownload,
+                    icon = Icons.AutoMirrored.Filled.ArrowDownward
                 )
             }
 
@@ -193,6 +196,7 @@ fun DownloaderSheet(
                     FormatPicker(
                         formats = metadata.formats,
                         selectedId = state.selectedFormatID,
+                        recommendedId = metadata.bestVideoFormat?.id,
                         onSelect = viewModel::selectFormat
                     )
                     if (metadata.usesYTDLP) {
@@ -263,7 +267,8 @@ private fun SheetPillButton(
     label: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
-    emphasized: Boolean = false
+    emphasized: Boolean = false,
+    icon: ImageVector? = null
 ) {
     Surface(
         onClick = onClick,
@@ -275,17 +280,34 @@ private fun SheetPillButton(
             MaterialTheme.colorScheme.surfaceVariant
         }
     ) {
-        Text(
-            text = label,
+        Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.labelLarge,
-            color = if (emphasized) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            },
-            fontWeight = FontWeight.Medium
-        )
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (icon != null && label != "…") {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = if (emphasized) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    }
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (emphasized) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+                fontWeight = FontWeight.Medium
+            )
+        }
     }
 }
 
@@ -334,10 +356,13 @@ private fun MetadataCard(metadata: VideoMetadata) {
 private fun FormatPicker(
     formats: List<VideoFormat>,
     selectedId: String?,
+    recommendedId: String?,
     onSelect: (String) -> Unit
 ) {
+    val video = formats.filter { !it.isAudioOnly }
+    val audio = formats.filter { it.isAudioOnly }
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text("Format", style = MaterialTheme.typography.titleSmall)
+        Text("Quality", style = MaterialTheme.typography.titleSmall)
         Spacer(modifier = Modifier.height(8.dp))
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -349,59 +374,106 @@ private fun FormatPicker(
                     .fillMaxWidth()
                     .padding(8.dp)
             ) {
-                formats.forEach { format ->
-                    val selected = format.id == selectedId
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(
-                                if (selected) {
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                                } else {
-                                    MaterialTheme.colorScheme.surface
-                                }
-                            )
-                            .selectable(
-                                selected = selected,
-                                onClick = { onSelect(format.id) }
-                            )
-                            .padding(horizontal = 12.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            if (selected) Icons.Default.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
-                            contentDescription = null,
-                            tint = if (selected) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            format.label,
-                            modifier = Modifier.weight(1f),
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                        if (format.label.contains("audio", ignoreCase = true) ||
-                            format.id.contains("audio", ignoreCase = true)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant
-                            ) {
-                                Text(
-                                    "Audio",
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
+                video.forEach { format ->
+                    FormatRow(
+                        format = format,
+                        selected = format.id == selectedId,
+                        badge = if (format.id == recommendedId) "Recommended" else null,
+                        recommended = format.id == recommendedId,
+                        onSelect = onSelect
+                    )
                 }
+                if (audio.isNotEmpty() && video.isNotEmpty()) {
+                    Text(
+                        "Audio",
+                        modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 4.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                audio.forEach { format ->
+                    FormatRow(
+                        format = format,
+                        selected = format.id == selectedId,
+                        badge = "Audio",
+                        recommended = false,
+                        onSelect = onSelect
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FormatRow(
+    format: VideoFormat,
+    selected: Boolean,
+    badge: String?,
+    recommended: Boolean,
+    onSelect: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                if (selected) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                } else {
+                    MaterialTheme.colorScheme.surface
+                }
+            )
+            .selectable(
+                selected = selected,
+                onClick = { onSelect(format.id) }
+            )
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            if (selected) Icons.Default.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+            contentDescription = null,
+            tint = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                format.qualityTitle,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                format.formatDetail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (badge != null) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = if (recommended) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                }
+            ) {
+                Text(
+                    badge,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (recommended) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
     }

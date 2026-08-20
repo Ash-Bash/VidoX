@@ -32,6 +32,17 @@ struct VideoFormat: Identifiable, Hashable, Sendable {
         self.ytdlpFormatSelector = ytdlpFormatSelector
         self.isHLSStream = isHLSStream
     }
+
+    var qualityTitle: String {
+        if isAudioOnly { return "Audio only" }
+        if let quality { return "\(quality)p" }
+        return label
+    }
+
+    var formatDetail: String {
+        let kind = isAudioOnly ? "Audio" : (isHLSStream ? "Stream" : "Video")
+        return "\(kind) · \(fileExtension.uppercased())"
+    }
 }
 
 /// Result of URL extraction — used by the downloader UI before persisting to SwiftData.
@@ -71,6 +82,7 @@ struct VideoMetadata: Sendable {
         let video = formats.filter { !$0.isAudioOnly }
         // Prefer progressive/muxed files, then HLS export, then adaptive video-only.
         let ranked = video.sorted { lhs, rhs in
+            // Progressive/merged files first; YouTube HLS currently 403s without a PO token.
             let leftScore = (lhs.isHLSStream ? 1_000_000 : 2_000_000) + (lhs.quality ?? 0)
             let rightScore = (rhs.isHLSStream ? 1_000_000 : 2_000_000) + (rhs.quality ?? 0)
             // Labels that mention video-only rank last.

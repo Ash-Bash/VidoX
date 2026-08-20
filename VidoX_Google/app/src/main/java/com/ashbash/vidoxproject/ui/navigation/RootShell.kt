@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PushPin
@@ -34,6 +35,7 @@ import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSiz
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +52,10 @@ import com.ashbash.vidoxproject.VidoXApp
 import com.ashbash.vidoxproject.ui.downloader.DownloaderSheet
 import com.ashbash.vidoxproject.ui.library.LibraryScreen
 import com.ashbash.vidoxproject.ui.library.VideoDetailScreen
+import com.ashbash.vidoxproject.ui.onboarding.OnboardingScreen
+import com.ashbash.vidoxproject.ui.onboarding.OnboardingStore
+import com.ashbash.vidoxproject.ui.onboarding.WhatsNewNotes
+import com.ashbash.vidoxproject.ui.onboarding.WhatsNewScreen
 import com.ashbash.vidoxproject.ui.pins.PinsScreen
 import com.ashbash.vidoxproject.ui.settings.SettingsScreen
 import com.ashbash.vidoxproject.ui.shared.DownloadCircleButton
@@ -68,10 +74,38 @@ fun RootShell(navigation: AppNavigationState = viewModel()) {
         DownloaderSheet(onDismiss = navigation::closeDownloader)
     }
 
-    if (useSplit) {
-        RegularSplitShell(navigation)
-    } else {
-        CompactTabShell(navigation)
+    LaunchedEffect(Unit) {
+        if (!OnboardingStore.isCompleted(activity)) {
+            navigation.showOnboarding()
+        } else if (WhatsNewNotes.shouldPresent(OnboardingStore.lastSeenVersion(activity))) {
+            navigation.showWhatsNew()
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (useSplit) {
+            RegularSplitShell(navigation)
+        } else {
+            CompactTabShell(navigation)
+        }
+        if (navigation.isOnboardingPresented) {
+            OnboardingScreen(
+                onFinished = {
+                    OnboardingStore.setCompleted(activity)
+                    OnboardingStore.markCurrentVersionSeen(activity)
+                    navigation.finishOnboarding()
+                }
+            )
+        }
+        if (navigation.isWhatsNewPresented) {
+            WhatsNewScreen(
+                items = WhatsNewNotes.displayItems(OnboardingStore.lastSeenVersion(activity)),
+                onFinished = {
+                    OnboardingStore.markCurrentVersionSeen(activity)
+                    navigation.finishWhatsNew()
+                }
+            )
+        }
     }
 }
 
@@ -138,7 +172,9 @@ private fun CompactContent(navigation: AppNavigationState) {
         AppDestination.Settings -> SettingsScreen(
             onOpenDownloader = navigation::openDownloader,
             showDownloadButton = true,
-            onLibraryWiped = { navigation.selectedVideoId = null }
+            onLibraryWiped = { navigation.selectedVideoId = null },
+            onShowOnboarding = navigation::showOnboarding,
+            onShowWhatsNew = navigation::showWhatsNew
         )
     }
 }
@@ -150,6 +186,8 @@ private fun CompactContent(navigation: AppNavigationState) {
 @Composable
 private fun RegularSplitShell(navigation: AppNavigationState) {
     val pinned by VidoXApp.instance.repository.observePinned()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val videos by VidoXApp.instance.repository.observeAll()
         .collectAsStateWithLifecycle(initialValue = emptyList())
     val storage = VidoXApp.instance.fileStorage
     val browseDestinations = listOf(
@@ -178,8 +216,8 @@ private fun RegularSplitShell(navigation: AppNavigationState) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 14.dp)
-                    .padding(top = 12.dp, bottom = 16.dp)
+                    .padding(horizontal = 10.dp)
+                    .padding(top = 8.dp, bottom = 12.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -193,29 +231,29 @@ private fun RegularSplitShell(navigation: AppNavigationState) {
                     DownloadCircleButton(onClick = navigation::openDownloader)
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
-                Text(
-                    "BROWSE",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.SemiBold
-                )
                 Spacer(modifier = Modifier.height(8.dp))
 
-                browseDestinations.forEach { destination ->
-                    val selected = navigation.splitSelection is SplitSidebarSelection.Destination &&
-                        (navigation.splitSelection as SplitSidebarSelection.Destination).destination == destination &&
-                        navigation.selectedVideoId == null
-                    SidebarDestinationRow(
-                        destination = destination,
-                        selected = selected,
-                        onClick = { navigation.selectDestination(destination) }
-                    )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    browseDestinations.forEach { destination ->
+                        val selected = navigation.splitSelection is SplitSidebarSelection.Destination &&
+                            (navigation.splitSelection as SplitSidebarSelection.Destination).destination == destination &&
+                            navigation.selectedVideoId == null
+                        SidebarActionCard(
+                            destination = destination,
+                            selected = selected,
+                            count = if (destination == AppDestination.Library) videos.size else null,
+                            onClick = { navigation.selectDestination(destination) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -324,7 +362,9 @@ private fun RegularSplitShell(navigation: AppNavigationState) {
                         AppDestination.Settings -> SettingsScreen(
                             onOpenDownloader = navigation::openDownloader,
                             showDownloadButton = false,
-                            onLibraryWiped = { navigation.selectedVideoId = null }
+                            onLibraryWiped = { navigation.selectedVideoId = null },
+                            onShowOnboarding = navigation::showOnboarding,
+                            onShowWhatsNew = navigation::showWhatsNew
                         )
                     }
                 }
@@ -341,46 +381,60 @@ private fun RegularSplitShell(navigation: AppNavigationState) {
 }
 
 @Composable
-private fun SidebarDestinationRow(
+private fun SidebarActionCard(
     destination: AppDestination,
     selected: Boolean,
-    onClick: () -> Unit
+    count: Int?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
             .background(
                 if (selected) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
                 } else {
-                    Color.Transparent
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
                 }
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(8.dp)
+            .height(64.dp),
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
-        Icon(
-            destination.icon,
-            contentDescription = null,
-            tint = if (selected) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            modifier = Modifier.size(22.dp)
-        )
-        Spacer(modifier = Modifier.width(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(26.dp)
+                    .clip(CircleShape)
+                    .background(destination.accentColor),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    destination.icon,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            if (count != null) {
+                Text(
+                    count.toString(),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
         Text(
             destination.title,
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            }
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold
         )
     }
 }

@@ -97,6 +97,22 @@ fun DesktopMenuBar(
                 )
             }
         }
+        MenuBarItem("Help") { dismiss ->
+            DropdownMenuItem(
+                text = { Text("VidoX Welcome Guide") },
+                onClick = {
+                    navigation.showOnboarding()
+                    dismiss()
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("What’s New in VidoX") },
+                onClick = {
+                    navigation.showWhatsNew()
+                    dismiss()
+                }
+            )
+        }
         Spacer(modifier = Modifier.weight(1f))
     }
 }

@@ -7,7 +7,7 @@ struct YTDLPVideoDownloader: VideoDownloading {
         from remoteURL: URL,
         to destination: URL
     ) -> AsyncThrowingStream<DownloadProgress, Error> {
-        download(pageURL: remoteURL, formatSelector: "bv*+ba/b", to: destination)
+        download(pageURL: remoteURL, formatSelector: ExperimentalSocialExtractor.youtubeFormatSelector, to: destination)
     }
 
     func download(
@@ -28,13 +28,24 @@ struct YTDLPVideoDownloader: VideoDownloading {
 
                     continuation.yield(DownloadProgress(bytesReceived: 0, totalBytes: nil))
 
-                    _ = try await YTDLPTool.run(arguments: [
+                    var arguments = [
                         "-f", formatSelector,
                         "--no-playlist",
                         "--no-warnings",
-                        "-o", template,
-                        pageURL.absoluteString
-                    ])
+                        "--merge-output-format", "mp4",
+                        "-o", template
+                    ]
+                    let host = pageURL.host?.lowercased() ?? ""
+                    if host.contains("youtube.com") || host.contains("youtu.be") {
+                        arguments += [
+                            "--extractor-args", ExperimentalSocialExtractor.youtubeExtractorArgs,
+                            "--check-formats",
+                            "--remote-components", "ejs:github"
+                        ]
+                    }
+                    arguments.append(pageURL.absoluteString)
+
+                    _ = try await YTDLPTool.run(arguments: arguments, forDownload: true)
 
                     let produced = try FileManager.default.contentsOfDirectory(
                         at: directory,

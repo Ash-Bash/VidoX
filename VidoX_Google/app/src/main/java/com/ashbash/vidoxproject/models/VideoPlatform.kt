@@ -70,7 +70,7 @@ enum class VideoPlatform(val rawValue: String) {
                 ""
             }
             val hosts: List<Pair<VideoPlatform, List<String>>> = listOf(
-                YOUTUBE to listOf("youtube.com", "youtu.be", "youtube-nocookie.com", "m.youtube.com"),
+                YOUTUBE to listOf("youtube.com", "youtu.be", "youtube-nocookie.com", "m.youtube.com", "music.youtube.com"),
                 // Match host labels only — bare "t.co" must not match inside "reddit.com".
                 TWITTER to listOf("twitter.com", "x.com", "t.co", "mobile.twitter.com"),
                 INSTAGRAM to listOf("instagram.com", "instagr.am", "kkinstagram.com"),

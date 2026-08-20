@@ -84,7 +84,7 @@ enum VideoPlatform: String, CaseIterable, Codable, Identifiable, Sendable {
     nonisolated static func detect(from urlString: String) -> VideoPlatform {
         let lower = urlString.lowercased()
         let hosts: [(VideoPlatform, [String])] = [
-            (.youtube, ["youtube.com", "youtu.be", "youtube-nocookie.com", "m.youtube.com"]),
+            (.youtube, ["youtube.com", "youtu.be", "youtube-nocookie.com", "m.youtube.com", "music.youtube.com"]),
             (.twitter, ["twitter.com", "x.com", "t.co", "mobile.twitter.com"]),
             (.instagram, ["instagram.com", "instagr.am", "kkinstagram.com"]),
             (.facebook, [

@@ -3,6 +3,23 @@ import Foundation
 /// Resolves video-page metadata for experimental / standalone downloads.
 /// macOS uses the managed yt-dlp binary; iOS / visionOS resolve media URLs natively.
 nonisolated struct ExperimentalSocialExtractor: VideoExtracting {
+    #if os(macOS)
+    /// android_vr / tv still return playable metadata; web clients often error with “page needs to be reloaded”.
+    static let youtubeExtractorArgs =
+        "youtube:player_client=android_vr,tv,-web,-mweb,-ios,-android,-android_sdkless"
+    /// Same working clients for Fetch Info — do not skip the webpage/JS or YouTube returns UNPLAYABLE.
+    static let youtubeExtractArgs =
+        "youtube:player_client=android_vr,tv"
+    /// Merge video+audio first. `/b*` is last so Fetch Info / download never die with
+    /// “Requested format is not available” when DASH mp4+m4a isn’t in the list.
+    static func youtubeSelector(maxHeight: Int? = nil) -> String {
+        let height = maxHeight.map { "[height<=\($0)]" } ?? ""
+        return "bv*\(height)[ext=mp4]+ba[ext=m4a]/bv*\(height)+ba/b*\(height)"
+    }
+
+    static var youtubeFormatSelector: String { youtubeSelector() }
+    #endif
+
     nonisolated func extract(from url: URL) async throws -> VideoMetadata {
         #if os(macOS)
         try await extractWithYTDLP(url: url)
@@ -21,34 +38,28 @@ nonisolated struct ExperimentalSocialExtractor: VideoExtracting {
             return try await IOSPageVideoExtractor().extract(from: url)
         }
 
-        // Prefer native resolvers for sites yt-dlp often fails on (login walls / challenges),
-        // then fall back to yt-dlp. On success this also keeps iOS/macOS behaviour aligned.
-        if Self.prefersNativeExtractor(platform),
-           let metadata = try? await IOSPageVideoExtractor().extract(from: url) {
-            return metadata
+        if platform == .youtube {
+            return try await extractYouTube(url: url)
         }
 
         if platform == .facebook {
-            return try await extractFacebookWithYTDLP(url: url)
+            do {
+                return try await extractFacebookWithYTDLP(url: url)
+            } catch {
+                if let metadata = try? await IOSPageVideoExtractor().extract(from: url) {
+                    return metadata
+                }
+                throw error
+            }
         }
 
         do {
             return try await extractGenericWithYTDLP(url: url, platform: platform)
         } catch {
-            // Last chance: native page resolvers (X, Reddit, Vimeo, …) when yt-dlp fails.
             if let metadata = try? await IOSPageVideoExtractor().extract(from: url) {
                 return metadata
             }
             throw error
-        }
-    }
-
-    private static func prefersNativeExtractor(_ platform: VideoPlatform) -> Bool {
-        switch platform {
-        case .facebook, .instagram, .twitter, .tiktok, .reddit, .streamable:
-            true
-        default:
-            false
         }
     }
 
@@ -75,20 +86,89 @@ nonisolated struct ExperimentalSocialExtractor: VideoExtracting {
         throw lastError
     }
 
+    /// Native Innertube is usually seconds; yt-dlp can hang. First success wins, the other is cancelled.
+    private func extractYouTube(url: URL) async throws -> VideoMetadata {
+        try await withThrowingTaskGroup(of: VideoMetadata.self) { group in
+            group.addTask {
+                let native = try await IOSPageVideoExtractor().extract(from: url)
+                return Self.taggedForYTDLP(native)
+            }
+            group.addTask {
+                try await self.extractGenericWithYTDLP(url: url, platform: .youtube)
+            }
+
+            var lastError: Error = YTDLPError.invalidMetadata
+            while let result = await group.nextResult() {
+                switch result {
+                case .success(let metadata):
+                    group.cancelAll()
+                    return metadata
+                case .failure(let error):
+                    lastError = error
+                }
+            }
+            throw lastError
+        }
+    }
+
+    /// Keep Mac downloads on yt-dlp even when metadata came from Innertube.
+    private static func taggedForYTDLP(_ metadata: VideoMetadata) -> VideoMetadata {
+        var formats = metadata.formats.map { format -> VideoFormat in
+            guard !format.isAudioOnly else { return format }
+            return VideoFormat(
+                id: format.id,
+                label: format.qualityTitle,
+                url: format.url,
+                fileExtension: "mp4",
+                quality: format.quality,
+                isAudioOnly: false,
+                ytdlpFormatSelector: youtubeSelector(maxHeight: format.quality),
+                isHLSStream: false
+            )
+        }
+        if formats.filter({ !$0.isAudioOnly }).isEmpty {
+            formats.insert(
+                VideoFormat(
+                    id: "best-mp4",
+                    label: "Best quality",
+                    url: metadata.sourceURL,
+                    fileExtension: "mp4",
+                    quality: nil,
+                    isAudioOnly: false,
+                    ytdlpFormatSelector: youtubeFormatSelector
+                ),
+                at: 0
+            )
+        }
+        return VideoMetadata(
+            title: metadata.title,
+            author: metadata.author,
+            thumbnailURL: metadata.thumbnailURL,
+            platform: .youtube,
+            sourceURL: metadata.sourceURL,
+            formats: formats,
+            allowsRealDownload: true,
+            usesYTDLP: true
+        )
+    }
+
     private func extractGenericWithYTDLP(url: URL, platform: VideoPlatform) async throws -> VideoMetadata {
         var arguments = [
             "-J",
             "--no-playlist",
             "--no-warnings",
-            "--socket-timeout", "10"
+            "--socket-timeout", "8",
+            "--retries", "1",
+            // Default yt-dlp `-f` fails YouTube lookups when DASH isn’t listed yet.
+            "-f", "all",
+            "--ignore-no-formats-error"
         ]
-        // Android client is usually the fastest YouTube path.
         if platform == .youtube {
-            arguments += ["--extractor-args", "youtube:player_client=android"]
+            arguments += ["--extractor-args", Self.youtubeExtractArgs]
         }
         arguments.append(url.absoluteString)
 
-        let data = try await YTDLPTool.run(arguments: arguments)
+        let data = try await YTDLPTool.run(arguments: arguments, forDownload: false)
 
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw YTDLPError.invalidMetadata
@@ -100,7 +180,7 @@ nonisolated struct ExperimentalSocialExtractor: VideoExtracting {
         let rawFormats = json["formats"] as? [[String: Any]] ?? []
         let defaultExt = (json["ext"] as? String) ?? "mp4"
 
-        var formats: [VideoFormat] = curatedFormats(from: rawFormats, pageURL: url)
+        var formats: [VideoFormat] = curatedFormats(from: rawFormats, pageURL: url, platform: platform)
         if formats.isEmpty {
             formats = [
                 VideoFormat(
@@ -110,7 +190,7 @@ nonisolated struct ExperimentalSocialExtractor: VideoExtracting {
                     fileExtension: defaultExt,
                     quality: nil,
                     isAudioOnly: false,
-                    ytdlpFormatSelector: "best[ext=mp4]/best"
+                    ytdlpFormatSelector: Self.youtubeFormatSelector
                 )
             ]
         }
@@ -127,14 +207,19 @@ nonisolated struct ExperimentalSocialExtractor: VideoExtracting {
         )
     }
 
-    /// Prefer progressive (video+audio) formats so downloads work without bundling ffmpeg.
-    private func curatedFormats(from raw: [[String: Any]], pageURL: URL) -> [VideoFormat] {
+    /// YouTube: never download a muxed itag directly (18/22 403). Offer merge/HLS selectors.
+    /// Other sites: progressive files are fine and avoid needing ffmpeg.
+    private func curatedFormats(from raw: [[String: Any]], pageURL: URL, platform: VideoPlatform) -> [VideoFormat] {
+        if platform == .youtube {
+            return youtubeDownloadFormats(from: raw, pageURL: pageURL)
+        }
+
         var result: [VideoFormat] = []
         var seenHeights = Set<Int>()
 
         let progressive = raw.compactMap { entry -> (height: Int, id: String, ext: String)? in
-            guard let id = entry["format_id"] as? String else { return nil }
-            let height = entry["height"] as? Int
+            guard let id = Self.formatID(from: entry) else { return nil }
+            let height = Self.intValue(entry["height"])
             let vcodec = entry["vcodec"] as? String ?? "none"
             let acodec = entry["acodec"] as? String ?? "none"
             guard let height, vcodec != "none", acodec != "none" else { return nil }
@@ -169,16 +254,75 @@ nonisolated struct ExperimentalSocialExtractor: VideoExtracting {
                 fileExtension: "mp4",
                 quality: progressive.first?.height,
                 isAudioOnly: false,
-                ytdlpFormatSelector: "best[ext=mp4]/best"
+                ytdlpFormatSelector: "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b"
             ),
             at: 0
         )
 
+        appendAudioFormat(from: raw, pageURL: pageURL, into: &result)
+        return result
+    }
+
+    private func youtubeDownloadFormats(from raw: [[String: Any]], pageURL: URL) -> [VideoFormat] {
+        var heights = Set<Int>()
+        for entry in raw {
+            let id = Self.formatID(from: entry) ?? ""
+            if id == "18" || id.hasPrefix("18-") || id == "22" || id.hasPrefix("22-") { continue }
+            let vcodec = entry["vcodec"] as? String ?? "none"
+            let height = Self.intValue(entry["height"])
+            guard vcodec != "none", let height, height >= 360 else { continue }
+            heights.insert(height)
+        }
+        let sortedHeights = heights.sorted(by: >)
+        var result: [VideoFormat] = []
+        if let bestHeight = sortedHeights.first {
+            result.append(
+                VideoFormat(
+                    id: "yt-\(bestHeight)",
+                    label: "\(bestHeight)p",
+                    url: pageURL,
+                    fileExtension: "mp4",
+                    quality: bestHeight,
+                    isAudioOnly: false,
+                    ytdlpFormatSelector: Self.youtubeSelector()
+                )
+            )
+            for height in sortedHeights.dropFirst().prefix(3) {
+                result.append(
+                    VideoFormat(
+                        id: "yt-\(height)",
+                        label: "\(height)p",
+                        url: pageURL,
+                        fileExtension: "mp4",
+                        quality: height,
+                        isAudioOnly: false,
+                        ytdlpFormatSelector: Self.youtubeSelector(maxHeight: height)
+                    )
+                )
+            }
+        } else {
+            result.append(
+                VideoFormat(
+                    id: "best-mp4",
+                    label: "Best quality",
+                    url: pageURL,
+                    fileExtension: "mp4",
+                    quality: nil,
+                    isAudioOnly: false,
+                    ytdlpFormatSelector: Self.youtubeSelector()
+                )
+            )
+        }
+        appendAudioFormat(from: raw, pageURL: pageURL, into: &result)
+        return result
+    }
+
+    private func appendAudioFormat(from raw: [[String: Any]], pageURL: URL, into result: inout [VideoFormat]) {
         if let audio = raw.first(where: {
             ($0["vcodec"] as? String ?? "none") == "none"
                 && ($0["acodec"] as? String ?? "none") != "none"
-                && ($0["format_id"] as? String) != nil
-        }), let id = audio["format_id"] as? String {
+                && Self.formatID(from: $0) != nil
+        }), let id = Self.formatID(from: audio) {
             let ext = (audio["ext"] as? String) ?? "m4a"
             result.append(
                 VideoFormat(
@@ -192,8 +336,19 @@ nonisolated struct ExperimentalSocialExtractor: VideoExtracting {
                 )
             )
         }
+    }
 
-        return result
+    private static func formatID(from entry: [String: Any]) -> String? {
+        if let string = entry["format_id"] as? String, !string.isEmpty { return string }
+        if let number = entry["format_id"] as? Int { return String(number) }
+        if let number = entry["format_id"] as? NSNumber { return number.stringValue }
+        return nil
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        if let int = value as? Int { return int }
+        if let number = value as? NSNumber { return number.intValue }
+        return nil
     }
     #endif
 }

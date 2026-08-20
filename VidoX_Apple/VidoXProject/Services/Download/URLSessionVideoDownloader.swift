@@ -4,6 +4,12 @@ import Foundation
 /// Uses `nonisolated(unsafe)` storage so URLSession callbacks can run off the MainActor
 /// (project default actor isolation is MainActor).
 final class URLSessionVideoDownloader: NSObject, VideoDownloading, URLSessionDownloadDelegate, @unchecked Sendable {
+    /// Must match the ANDROID_VR Innertube client used for progressive YouTube URLs.
+    private static let youtubeVRUserAgent =
+        "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
+    private static let youtubeIOSUserAgent =
+        "com.google.ios.youtube/20.50.3 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)"
+
     nonisolated(unsafe) private var session: URLSession!
     nonisolated(unsafe) private var continuations: [Int: AsyncThrowingStream<DownloadProgress, Error>.Continuation] = [:]
     nonisolated(unsafe) private var destinations: [Int: URL] = [:]
@@ -23,16 +29,23 @@ final class URLSessionVideoDownloader: NSObject, VideoDownloading, URLSessionDow
     ) -> AsyncThrowingStream<DownloadProgress, Error> {
         AsyncThrowingStream { continuation in
             var request = URLRequest(url: remoteURL)
-            // Some CDNs (e.g. YouTube) require a browser-like identity.
-            request.setValue(
-                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-                forHTTPHeaderField: "User-Agent"
-            )
             let host = remoteURL.host?.lowercased() ?? ""
             if host.contains("googlevideo.com") || host.contains("youtube.com") {
-                request.setValue("https://www.youtube.com", forHTTPHeaderField: "Referer")
-                request.setValue("https://www.youtube.com", forHTTPHeaderField: "Origin")
-            } else if host.contains("cdninstagram.com")
+                // Match Innertube client identity. Safari UA + Origin is a common 403.
+                let isHLS = remoteURL.path.lowercased().contains(".m3u8")
+                    || remoteURL.absoluteString.lowercased().contains("manifest/hls")
+                request.setValue(
+                    isHLS ? Self.youtubeIOSUserAgent : Self.youtubeVRUserAgent,
+                    forHTTPHeaderField: "User-Agent"
+                )
+                request.setValue("https://www.youtube.com/", forHTTPHeaderField: "Referer")
+            } else {
+                request.setValue(
+                    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+                    forHTTPHeaderField: "User-Agent"
+                )
+            }
+            if host.contains("cdninstagram.com")
                         || host.contains("fbcdn.net")
                         || host.contains("scontent") {
                 // Meta CDNs serve both Instagram and Facebook progressive files.

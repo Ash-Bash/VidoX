@@ -51,8 +51,10 @@ enum VideoRedownloader {
 
         do {
             #if os(macOS)
-            if metadata.usesYTDLP, let selector = format.ytdlpFormatSelector {
+            if metadata.platform == .youtube || (metadata.usesYTDLP && format.ytdlpFormatSelector != nil) {
                 let ytdlpDownloader = YTDLPVideoDownloader()
+                let selector = format.ytdlpFormatSelector
+                    ?? ExperimentalSocialExtractor.youtubeFormatSelector
                 for try await progress in ytdlpDownloader.download(
                     pageURL: metadata.sourceURL,
                     formatSelector: selector,
@@ -74,6 +76,12 @@ enum VideoRedownloader {
                     .first {
                     destination = match
                 }
+            } else if format.isHLSStream {
+                onProgress("Exporting stream…", nil)
+                let exportDestination = destination.deletingPathExtension().appendingPathExtension("mp4")
+                try await HLSVideoDownloader.download(from: format.url, to: exportDestination)
+                destination = exportDestination
+                onProgress("Finished", 1)
             } else {
                 try await downloadURLSession(
                     urlDownloader: urlDownloader,

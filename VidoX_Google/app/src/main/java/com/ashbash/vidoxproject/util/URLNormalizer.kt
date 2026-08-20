@@ -71,19 +71,24 @@ object URLNormalizer {
             "www.facebook.com"
         "fb.com", "www.fb.com" -> "www.facebook.com"
         "www.fb.watch" -> "fb.watch"
+        "m.youtube.com", "music.youtube.com", "www.music.youtube.com",
+        "youtube-nocookie.com", "www.youtube-nocookie.com" ->
+            "www.youtube.com"
         else -> host
     }
 
     private fun filterQuery(rawQuery: String, host: String, path: String): String {
         val isFacebook = VideoPlatform.detect("https://$host$path") == VideoPlatform.FACEBOOK
+        val isYouTube = VideoPlatform.detect("https://$host$path") == VideoPlatform.YOUTUBE
+        val keepYouTube = setOf("v", "vi", "t", "list")
         val keepFacebook = setOf("v", "story_fbid", "id", "video_id")
         return rawQuery.split("&").mapNotNull { pair ->
             val parts = pair.split("=", limit = 2)
             val name = parts[0].lowercase()
-            if (isFacebook) {
-                if (name in keepFacebook || name !in stripQueryKeys) pair else null
-            } else {
-                if (name in stripQueryKeys) null else pair
+            when {
+                isFacebook -> if (name in keepFacebook || name !in stripQueryKeys) pair else null
+                isYouTube -> if (name in keepYouTube || name !in stripQueryKeys) pair else null
+                else -> if (name in stripQueryKeys) null else pair
             }
         }.joinToString("&")
     }

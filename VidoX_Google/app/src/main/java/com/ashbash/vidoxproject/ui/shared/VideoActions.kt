@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.ashbash.vidoxproject.VidoXApp
 import com.ashbash.vidoxproject.data.DownloadedVideo
 import com.ashbash.vidoxproject.services.download.VideoRedownloader
+import com.ashbash.vidoxproject.services.download.userFacingTransferMessage
 import com.ashbash.vidoxproject.services.export.ExportError
 import com.ashbash.vidoxproject.services.export.VideoExportService
 import kotlinx.coroutines.launch
@@ -95,7 +96,7 @@ fun VideoActionsMenu(
                             alert = "Redownloaded successfully."
                             onChanged()
                         } catch (e: Exception) {
-                            alert = e.message ?: "Redownload failed."
+                            alert = userFacingTransferMessage(e)
                         } finally {
                             isRedownloading = false
                         }

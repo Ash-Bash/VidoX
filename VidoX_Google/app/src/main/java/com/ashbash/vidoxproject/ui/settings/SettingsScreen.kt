@@ -18,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Download
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.WavingHand
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -63,7 +65,9 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     onOpenDownloader: () -> Unit,
     showDownloadButton: Boolean = true,
-    onLibraryWiped: () -> Unit = {}
+    onLibraryWiped: () -> Unit = {},
+    onShowOnboarding: () -> Unit = {},
+    onShowWhatsNew: () -> Unit = {}
 ) {
     val app = VidoXApp.instance
     val scope = rememberCoroutineScope()
@@ -327,6 +331,28 @@ fun SettingsScreen(
                 SettingsKeyValue("Version", BuildConfig.VERSION_NAME)
                 Spacer(modifier = Modifier.height(6.dp))
                 SettingsKeyValue("Build", BuildConfig.VERSION_CODE.toString())
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onShowOnboarding,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.WavingHand, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Welcome")
+                    }
+                    OutlinedButton(
+                        onClick = onShowWhatsNew,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("What’s New")
+                    }
+                }
             }
         }
     }

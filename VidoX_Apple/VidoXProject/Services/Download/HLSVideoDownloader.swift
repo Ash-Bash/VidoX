@@ -9,7 +9,7 @@ enum HLSDownloadError: LocalizedError, Sendable {
     var errorDescription: String? {
         switch self {
         case .exportFailed:
-            "Couldn’t export the video stream."
+            "Couldn’t save this stream. The site may have blocked it (this is often a 403). Try again, or pick another quality."
         case .unsupported:
             "This stream format can’t be saved on this device."
         case .cancelled:
@@ -20,8 +20,25 @@ enum HLSDownloadError: LocalizedError, Sendable {
 
 /// Downloads an HLS (`.m3u8`) stream and exports a local MP4 via AVFoundation.
 enum HLSVideoDownloader {
+    private static let youtubeIOSUserAgent =
+        "com.google.ios.youtube/20.50.3 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)"
+
     static func download(from hlsURL: URL, to destination: URL) async throws {
-        let asset = AVURLAsset(url: hlsURL)
+        let host = hlsURL.host?.lowercased() ?? ""
+        let asset: AVURLAsset
+        if host.contains("googlevideo.com") || host.contains("youtube.com") {
+            asset = AVURLAsset(
+                url: hlsURL,
+                options: [
+                    "AVURLAssetHTTPHeaderFieldsKey": [
+                        "User-Agent": youtubeIOSUserAgent,
+                        "Referer": "https://www.youtube.com/"
+                    ]
+                ]
+            )
+        } else {
+            asset = AVURLAsset(url: hlsURL)
+        }
         let isPlayable = (try? await asset.load(.isPlayable)) ?? false
         guard isPlayable else { throw HLSDownloadError.unsupported }
 
@@ -46,7 +63,10 @@ enum HLSVideoDownloader {
         } catch is CancellationError {
             throw HLSDownloadError.cancelled
         } catch {
-            throw error
+            if let code = TransferErrorHelp.httpStatus(in: error.localizedDescription) {
+                throw DownloadError.httpStatus(code)
+            }
+            throw HLSDownloadError.exportFailed
         }
     }
 }

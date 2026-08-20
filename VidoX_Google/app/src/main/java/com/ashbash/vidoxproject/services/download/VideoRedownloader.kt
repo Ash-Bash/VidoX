@@ -3,8 +3,10 @@ package com.ashbash.vidoxproject.services.download
 import android.app.Application
 import com.ashbash.vidoxproject.VidoXApp
 import com.ashbash.vidoxproject.data.DownloadedVideo
+import com.ashbash.vidoxproject.models.VideoPlatform
 import com.ashbash.vidoxproject.services.extraction.ExtractionError
 import com.ashbash.vidoxproject.services.extraction.ExtractionRouter
+import com.ashbash.vidoxproject.services.extraction.YOUTUBE_FORMAT_SELECTOR
 import com.ashbash.vidoxproject.util.URLNormalizer
 import com.ashbash.vidoxproject.util.VideoThumbnailLoader
 import kotlinx.coroutines.Dispatchers
@@ -37,7 +39,10 @@ class VideoRedownloader(application: Application) {
             ?: metadata.formats.firstOrNull { !it.isAudioOnly }
             ?: throw IllegalStateException("No downloadable format was found for this video.")
 
-        report(if (metadata.usesYTDLP) "Preparing…" else "Starting…", null)
+        report(
+            if (metadata.platform == VideoPlatform.YOUTUBE || metadata.usesYTDLP) "Preparing…" else "Starting…",
+            null
+        )
 
         var destination = app.fileStorage.makeVideoFile(
             if (metadata.title.isNotBlank()) metadata.title else video.title,
@@ -45,10 +50,13 @@ class VideoRedownloader(application: Application) {
         )
 
         try {
-            if (metadata.usesYTDLP && format.ytdlpFormatSelector != null) {
+            if (metadata.platform == VideoPlatform.YOUTUBE ||
+                (metadata.usesYTDLP && format.ytdlpFormatSelector != null)
+            ) {
+                val selector = format.ytdlpFormatSelector ?: YOUTUBE_FORMAT_SELECTOR
                 ytdlpDownloader.download(
                     pageURL = metadata.sourceURL,
-                    formatSelector = format.ytdlpFormatSelector,
+                    formatSelector = selector,
                     destination = destination
                 ).collect { progress ->
                     report(
